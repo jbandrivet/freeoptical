@@ -60,3 +60,12 @@ freeoptical --mcp
 - `lancer_simulation()` : Exécute le lancer de rayons séquentiel et retourne les données paraxiales, les rayons 3D et la LSA.
 - `obtenir_spot_diagram()` : Retourne les coordonnées des impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
 - `optimiser_systeme(variables, cibles)` : Exécute l'optimiseur Damped Least Squares (DLS).
+
+---
+
+## Licence
+
+FreeOptical est distribué sous double licence, au choix :
+
+- Licence Apache, version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- Licence MIT ([LICENSE-MIT](LICENSE-MIT))
