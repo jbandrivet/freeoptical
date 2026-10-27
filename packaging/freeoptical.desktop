@@ -2,6 +2,8 @@
 Name=FreeOptical
 Comment=Logiciel de conception et de simulation optique séquentielle (GUI Autonome & MCP)
 Exec=freeoptical
+Icon=freeoptical
+StartupWMClass=freeoptical
 Terminal=false
 Type=Application
 Categories=Science;Physics;Engineering;

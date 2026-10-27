@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.jpg" alt="FreeOptical" width="640"></p>
+
 # FreeOptical
 
 **Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**

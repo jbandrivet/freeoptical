@@ -12,6 +12,10 @@ rm -rf "$ROOT"
 install -Dm755 target/release/freeoptical "$ROOT/usr/bin/freeoptical"
 strip "$ROOT/usr/bin/freeoptical" 2>/dev/null || true
 install -Dm644 packaging/freeoptical.desktop "$ROOT/usr/share/applications/freeoptical.desktop"
+for taille in 48 64 128 256 512; do
+    install -Dm644 "assets/icons/freeoptical-$taille.png" \
+        "$ROOT/usr/share/icons/hicolor/${taille}x${taille}/apps/freeoptical.png"
+done
 install -Dm644 README.md "$ROOT/usr/share/doc/freeoptical/README.md"
 install -Dm644 LICENSE-MIT "$ROOT/usr/share/doc/freeoptical/LICENSE-MIT"
 install -Dm644 LICENSE-APACHE "$ROOT/usr/share/doc/freeoptical/LICENSE-APACHE"

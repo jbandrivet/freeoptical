@@ -174,7 +174,15 @@ pub fn executer_gui_autonome(systeme_initial: OpticalSystem) -> Result<()> {
                 maj::VERSION_COURANTE
             ))
             .with_inner_size([1380.0, 860.0])
-            .with_min_inner_size([960.0, 640.0]),
+            .with_min_inner_size([960.0, 640.0])
+            // L'app_id relie la fenêtre au lanceur freeoptical.desktop (icône sous Wayland)
+            .with_app_id("freeoptical")
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!(
+                    "../../assets/icons/freeoptical-256.png"
+                ))
+                .unwrap_or_default(),
+            ),
         ..Default::default()
     };
 
@@ -2043,4 +2051,16 @@ fn charger_systeme_fichier() -> Result<(OpticalSystem, String), String> {
     }
     let msg = format!("Système '{}' rechargé depuis '{}'.", sys.nom, FICHIER_SYSTEME);
     Ok((sys, msg))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn icone_de_fenetre_lisible() {
+        let icone = eframe::icon_data::from_png_bytes(include_bytes!(
+            "../../assets/icons/freeoptical-256.png"
+        ))
+        .unwrap();
+        assert_eq!((icone.width, icone.height), (256, 256));
+    }
 }
