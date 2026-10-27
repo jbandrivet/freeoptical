@@ -1,11 +1,11 @@
 # FreeOptical
 
-**Logiciel open-source de conception et de simulation optique séquentielle pour Linux (TUI style MS-DOS & Serveur MCP)**
+**Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**
 
-Développé intégralement en **Rust** (`ratatui`, `nalgebra`, `rmcp`), `freeoptical` combine :
-1. **Un moteur physique de lancer de rayons séquentiel 3D** (calcul paraxial ABCD, lois de Snell-Descartes vectorielles 3D, surfaces planes, sphériques, coniques et asphériques paires, dispersion chromatique de Cauchy $n_d / V_d$, Spot Diagram polychromatique, aberration sphérique longitudinale et optimisation Damped Least Squares).
-2. **Une interface graphique native autonome (OpenGL `eframe` / `egui`) et Terminal (TUI) rétro style MS-DOS en français** (fond bleu marine `#000080`, bordures doubles `╔═══╗`, Éditeur de Données de Lentilles interactif, tracé 2D en coupe transversale et projection 3D isométrique filaire orientable).
-3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques de manière autonome en arrière-plan.
+FreeOptical permet de concevoir n'importe quel système optique (objectif, lunette, télescope à miroirs, montage de test…) surface par surface, puis de l'analyser et de l'optimiser. Il est écrit en **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) et combine :
+1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, dispersion chromatique $n_d / V_d$, spot diagram polychromatique, aberration sphérique longitudinale et optimisation Damped Least Squares.
+2. **Une interface graphique et une interface terminal (`--tui`) en français** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA et catalogue de verres. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
+3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques.
 
 ---
 

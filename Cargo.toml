@@ -3,12 +3,12 @@ name = "freeoptical"
 version = "0.2.0"
 edition = "2024"
 authors = ["Jean-Baptiste"]
-description = "Logiciel open-source de conception et de simulation optique séquentielle (TUI style DOS & Serveur MCP)"
+description = "Logiciel open-source de conception et de simulation optique séquentielle (interface graphique, TUI et serveur MCP)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jbandrivet/freeoptical"
 
 [dependencies]
-# Interface Terminal (TUI style DOS) et Interface Graphique Native Autonome (GUI OpenGL)
+# Interface Terminal (TUI) et Interface Graphique Native Autonome (GUI OpenGL)
 ratatui = { version = "0.29", features = ["all-widgets"] }
 crossterm = "0.28"
 eframe = { version = "0.37", default-features = false, features = ["glow", "x11", "wayland", "default_fonts"] }

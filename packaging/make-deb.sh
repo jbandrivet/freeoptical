@@ -40,11 +40,12 @@ Maintainer: Jean-Baptiste Andrivet <jeanbaptisteandrivet@gmail.com>
 Homepage: https://github.com/jbandrivet/freeoptical
 Description: Logiciel open-source de conception et de simulation optique séquentielle
  FreeOptical est un logiciel de conception optique séquentielle développé en Rust.
- Il intègre un moteur de lancer de rayons 3D exact (Snell-Descartes, surfaces
- sphériques, coniques et asphériques, Spot Diagram, aberration sphérique,
- optimisation Damped Least Squares), une interface graphique egui, une interface
- TUI rétro style MS-DOS en français (freeoptical --tui) ainsi qu'un serveur
- Model Context Protocol (MCP) natif (freeoptical --mcp).
+ Il permet de concevoir tout système optique surface par surface et intègre un
+ moteur de lancer de rayons 3D exact (Snell-Descartes, surfaces sphériques,
+ coniques et asphériques, miroirs, spot diagram, aberration sphérique,
+ optimisation Damped Least Squares), une interface graphique et une interface
+ terminal en français (freeoptical --tui) ainsi qu'un serveur Model Context
+ Protocol (MCP) natif (freeoptical --mcp).
 CONTROL
 
 dpkg-deb --root-owner-group -b "$ROOT" "$DEB"
