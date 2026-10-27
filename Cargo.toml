@@ -29,3 +29,6 @@ tokio = { version = "1.43", features = ["full"] }
 clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 thiserror = "2.0"
+
+# Mise à jour en ligne (releases GitHub)
+ureq = "3.5"

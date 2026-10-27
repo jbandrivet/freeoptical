@@ -17,9 +17,11 @@ use crate::{
         },
         types::{OpticalSystem, Point3, Surface, SurfaceType, Vec3},
     },
+    maj::{self, VersionDisponible},
     ui::app::ActiveView,
 };
 use anyhow::Result;
+use std::sync::mpsc;
 use eframe::egui::{
     self, Align2, Color32, Context, CornerRadius, FontFamily, FontId, Frame as EguiFrame, Key,
     Margin, Pos2, RichText, Sense, Shape, Stroke, StrokeKind, Vec2,
@@ -164,7 +166,10 @@ const FICHIER_SYSTEME: &str = "systeme_optique.json";
 pub fn executer_gui_autonome(systeme_initial: OpticalSystem) -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("FreeOptical v0.1.0 — Conception & Simulation Optique Séquentielle")
+            .with_title(format!(
+                "FreeOptical v{} — Conception & Simulation Optique Séquentielle",
+                maj::VERSION_COURANTE
+            ))
             .with_inner_size([1380.0, 860.0])
             .with_min_inner_size([960.0, 640.0]),
         ..Default::default()
@@ -201,6 +206,17 @@ fn configurer_theme_dos(ctx: &Context) {
     ctx.set_visuals(visuals);
 }
 
+/// Étapes de la mise à jour en ligne
+#[derive(Clone, Debug)]
+pub enum EtatMaj {
+    Recherche,
+    AJour,
+    Disponible(VersionDisponible),
+    Installation(String),
+    Installee(String),
+    Erreur(String),
+}
+
 pub struct FreeOpticalGuiApp {
     pub systeme: OpticalSystem,
     pub paraxial: ParaxialData,
@@ -214,6 +230,9 @@ pub struct FreeOpticalGuiApp {
     pub pan_offset: Vec2,
     pub nb_rayons_2d: usize,
     pub statut_message: String,
+    pub fenetre_maj: bool,
+    pub etat_maj: EtatMaj,
+    recepteur_maj: Option<mpsc::Receiver<EtatMaj>>,
 }
 
 impl FreeOpticalGuiApp {
@@ -239,6 +258,9 @@ impl FreeOpticalGuiApp {
             pan_offset: Vec2::ZERO,
             nb_rayons_2d: 11,
             statut_message,
+            fenetre_maj: false,
+            etat_maj: EtatMaj::Recherche,
+            recepteur_maj: None,
         }
     }
 
@@ -329,6 +351,190 @@ impl FreeOpticalGuiApp {
         self.recalculer();
         self.statut_message = "Surface supprimée.".to_string();
     }
+
+    /// Exécute une étape de mise à jour hors du fil de l'interface (réseau, pkexec)
+    fn lancer_tache_maj(
+        &mut self,
+        ctx: &Context,
+        etat: EtatMaj,
+        tache: impl FnOnce() -> EtatMaj + Send + 'static,
+    ) {
+        let (emetteur, recepteur) = mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = emetteur.send(tache());
+            ctx.request_repaint();
+        });
+        self.etat_maj = etat;
+        self.recepteur_maj = Some(recepteur);
+        self.fenetre_maj = true;
+    }
+
+    pub fn rechercher_mise_a_jour(&mut self, ctx: &Context) {
+        if self.recepteur_maj.is_some() {
+            self.fenetre_maj = true;
+            return;
+        }
+        self.lancer_tache_maj(ctx, EtatMaj::Recherche, || match maj::rechercher() {
+            Ok(Some(v)) => EtatMaj::Disponible(v),
+            Ok(None) => EtatMaj::AJour,
+            Err(e) => EtatMaj::Erreur(e),
+        });
+    }
+
+    fn installer_mise_a_jour(&mut self, ctx: &Context, v: VersionDisponible) {
+        let Some(deb) = v.deb else { return };
+        let version = v.version;
+        self.lancer_tache_maj(ctx, EtatMaj::Installation(version.clone()), move || {
+            match maj::telecharger(&deb).and_then(|chemin| maj::installer(&chemin)) {
+                Ok(()) => EtatMaj::Installee(version),
+                Err(e) => EtatMaj::Erreur(e),
+            }
+        });
+    }
+
+    fn dessiner_fenetre_maj(&mut self, ctx: &Context) {
+        if let Some(recepteur) = &self.recepteur_maj {
+            match recepteur.try_recv() {
+                Ok(etat) => {
+                    self.statut_message = match &etat {
+                        EtatMaj::AJour => format!("FreeOptical v{} est à jour.", maj::VERSION_COURANTE),
+                        EtatMaj::Disponible(v) => format!("Mise à jour disponible : v{}", v.version),
+                        EtatMaj::Installee(v) => {
+                            format!("FreeOptical v{v} installé : redémarrer pour l'utiliser.")
+                        }
+                        EtatMaj::Erreur(e) => format!("Mise à jour : {e}"),
+                        _ => self.statut_message.clone(),
+                    };
+                    self.etat_maj = etat;
+                    self.recepteur_maj = None;
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.etat_maj = EtatMaj::Erreur("La tâche de mise à jour s'est interrompue.".into());
+                    self.recepteur_maj = None;
+                }
+            }
+        }
+        if !self.fenetre_maj {
+            return;
+        }
+
+        let mut ouverte = true;
+        let mut action: Option<&str> = None;
+        egui::Window::new(RichText::new(" Mise à jour de FreeOptical ").monospace().strong())
+            .open(&mut ouverte)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(380.0);
+                ui.label(
+                    RichText::new(format!("Version installée : v{}", maj::VERSION_COURANTE))
+                        .monospace(),
+                );
+                ui.add_space(6.0);
+                match &self.etat_maj {
+                    EtatMaj::Recherche => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Recherche de la dernière version sur GitHub…");
+                        });
+                    }
+                    EtatMaj::AJour => {
+                        ui.label(RichText::new("FreeOptical est à jour.").color(COL_DOS_GREEN));
+                        ui.add_space(6.0);
+                        if ui.button("Fermer").clicked() {
+                            action = Some("fermer");
+                        }
+                    }
+                    EtatMaj::Disponible(v) => {
+                        ui.label(
+                            RichText::new(format!("Nouvelle version disponible : v{}", v.version))
+                                .strong()
+                                .color(COL_DOS_YELLOW),
+                        );
+                        ui.add_space(6.0);
+                        let automatique = v.deb.is_some() && maj::installation_automatique_possible();
+                        if !automatique {
+                            ui.label("Installation automatique impossible ici : téléchargez le paquet depuis la page de la version.");
+                        } else {
+                            ui.label("Le mot de passe administrateur sera demandé pour installer le paquet.");
+                        }
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if automatique && ui.button("Installer").clicked() {
+                                action = Some("installer");
+                            }
+                            if ui.button("Voir les nouveautés").clicked() {
+                                ctx.open_url(egui::OpenUrl::new_tab(&v.page));
+                            }
+                            if ui.button("Plus tard").clicked() {
+                                action = Some("fermer");
+                            }
+                        });
+                    }
+                    EtatMaj::Installation(v) => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label(format!("Téléchargement et installation de la v{v}…"));
+                        });
+                        ui.label("Saisissez le mot de passe administrateur dans la fenêtre qui s'ouvre.");
+                    }
+                    EtatMaj::Installee(v) => {
+                        ui.label(
+                            RichText::new(format!("FreeOptical v{v} est installé."))
+                                .strong()
+                                .color(COL_DOS_GREEN),
+                        );
+                        ui.label("Pensez à sauvegarder votre système avant de redémarrer.");
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Redémarrer FreeOptical").clicked() {
+                                action = Some("relancer");
+                            }
+                            if ui.button("Plus tard").clicked() {
+                                action = Some("fermer");
+                            }
+                        });
+                    }
+                    EtatMaj::Erreur(e) => {
+                        ui.label(RichText::new(e).color(COL_DOS_RED));
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Réessayer").clicked() {
+                                action = Some("rechercher");
+                            }
+                            if ui.button("Page des versions").clicked() {
+                                ctx.open_url(egui::OpenUrl::new_tab(maj::PAGE_RELEASES));
+                            }
+                            if ui.button("Fermer").clicked() {
+                                action = Some("fermer");
+                            }
+                        });
+                    }
+                }
+            });
+
+        // Pendant le téléchargement et l'installation, la fenêtre reste ouverte
+        if !ouverte && !matches!(self.etat_maj, EtatMaj::Installation(_)) {
+            self.fenetre_maj = false;
+        }
+        match action {
+            Some("fermer") => self.fenetre_maj = false,
+            Some("rechercher") => self.rechercher_mise_a_jour(ctx),
+            Some("installer") => {
+                if let EtatMaj::Disponible(v) = self.etat_maj.clone() {
+                    self.installer_mise_a_jour(ctx, v);
+                }
+            }
+            Some("relancer") => match maj::relancer() {
+                Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                Err(e) => self.etat_maj = EtatMaj::Erreur(e),
+            },
+            _ => {}
+        }
+    }
 }
 
 impl eframe::App for FreeOpticalGuiApp {
@@ -360,7 +566,7 @@ impl eframe::App for FreeOpticalGuiApp {
                 ui.visuals_mut().override_text_color = Some(Color32::BLACK);
                 egui::MenuBar::new().ui(ui, |ui| {
                     ui.label(
-                        RichText::new(" ◄ FREEOPTICAL v0.1 ► ")
+                        RichText::new(format!(" ◄ FREEOPTICAL v{} ► ", maj::VERSION_COURANTE))
                             .monospace()
                             .strong()
                             .color(COL_DOS_WHITE)
@@ -526,6 +732,11 @@ impl eframe::App for FreeOpticalGuiApp {
                             self.mise_au_point_paraxiale();
                             ui.close();
                         }
+                        ui.separator();
+                        if ui.button("Rechercher une mise à jour…").clicked() {
+                            self.rechercher_mise_a_jour(&ctx);
+                            ui.close();
+                        }
                     });
 
                     ui.separator();
@@ -597,22 +808,51 @@ impl eframe::App for FreeOpticalGuiApp {
                     .inner_margin(Margin::symmetric(8, 3)),
             )
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(
-                            " Souris: Glisser=Pivoter/Déplacer | Molette=Zoom | Clic LDE=Éditer ",
+                // Bouton de mise à jour calé à droite, toujours visible quelle que soit la largeur
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let maj_disponible =
+                        matches!(self.etat_maj, EtatMaj::Disponible(_) | EtatMaj::Installee(_));
+                    let libelle = match &self.etat_maj {
+                        EtatMaj::Disponible(v) => format!(" ⬆ Mise à jour v{} ", v.version),
+                        _ => " ⟳ Mise à jour ".to_string(),
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new(libelle).monospace().strong().color(
+                                if maj_disponible { COL_DOS_YELLOW } else { COL_DOS_CYAN },
+                            ))
+                            .fill(if maj_disponible {
+                                Color32::from_rgb(130, 60, 0)
+                            } else {
+                                Color32::from_rgb(0, 80, 110)
+                            }),
                         )
-                        .monospace()
-                        .strong()
-                        .color(Color32::BLACK),
-                    );
+                        .on_hover_text("Rechercher et installer la dernière version publiée sur GitHub")
+                        .clicked()
+                    {
+                        self.rechercher_mise_a_jour(&ctx);
+                    }
                     ui.separator();
-                    ui.label(
-                        RichText::new(&self.statut_message)
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(
+                                " Souris: Glisser=Pivoter/Déplacer | Molette=Zoom | Clic LDE=Éditer ",
+                            )
                             .monospace()
                             .strong()
-                            .color(Color32::from_rgb(0, 30, 120)),
-                    );
+                            .color(Color32::BLACK),
+                        );
+                        ui.separator();
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(&self.statut_message)
+                                    .monospace()
+                                    .strong()
+                                    .color(Color32::from_rgb(0, 30, 120)),
+                            )
+                            .truncate(),
+                        );
+                    });
                 });
             });
 
@@ -659,6 +899,8 @@ impl eframe::App for FreeOpticalGuiApp {
                     ActiveView::CatalogueVerres => self.dessiner_table_verres(ui),
                 });
             });
+
+        self.dessiner_fenetre_maj(&ctx);
     }
 }
 

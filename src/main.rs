@@ -1,5 +1,6 @@
 pub mod core;
 pub mod gui;
+pub mod maj;
 pub mod mcp;
 pub mod ui;
 
