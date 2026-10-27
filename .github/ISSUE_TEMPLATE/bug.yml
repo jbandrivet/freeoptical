@@ -1,0 +1,30 @@
+name: Bug
+description: Un calcul faux, un plantage ou un comportement inattendu
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Sortie de `freeoptical --version`, et distribution Linux
+      placeholder: freeoptical 0.2.2, Ubuntu 26.04
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Que se passe-t-il ?
+      description: Ce que vous avez fait, ce que vous attendiez, ce que vous avez obtenu.
+    validations:
+      required: true
+  - type: textarea
+    id: systeme
+    attributes:
+      label: Système optique
+      description: Contenu du fichier `.json` (menu Fichier → Sauvegarder) ou fichier joint. Indispensable pour reproduire le problème.
+      render: json
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Valeur attendue (erreur de calcul)
+      description: La valeur correcte et sa source (calcul à la main, autre logiciel, livre…).

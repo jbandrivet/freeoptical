@@ -1,5 +1,7 @@
 <p align="center"><img src="assets/logo.jpg" alt="FreeOptical" width="640"></p>
 
+<p align="center"><a href="https://github.com/jbandrivet/freeoptical/actions/workflows/ci.yml"><img src="https://github.com/jbandrivet/freeoptical/actions/workflows/ci.yml/badge.svg" alt="CI"></a> <a href="https://github.com/jbandrivet/freeoptical/releases/latest"><img src="https://img.shields.io/github/v/release/jbandrivet/freeoptical" alt="Dernière version"></a> <a href="#licence"><img src="https://img.shields.io/badge/licence-MIT%20%2F%20Apache--2.0-blue" alt="Licence"></a></p>
+
 # FreeOptical
 
 **Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**
@@ -75,6 +77,12 @@ freeoptical --mcp
 - `lancer_simulation()` : Exécute le lancer de rayons séquentiel et retourne les données paraxiales, les rayons 3D et la LSA.
 - `obtenir_spot_diagram()` : Retourne les coordonnées des impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
 - `optimiser_systeme(variables, cibles)` : Exécute l'optimiseur Damped Least Squares (DLS).
+
+---
+
+## Contribuer
+
+FreeOptical est un projet ouvert : chacun peut l'améliorer. Signalez un bug ou proposez une idée dans les [issues](https://github.com/jbandrivet/freeoptical/issues), posez vos questions dans les [discussions](https://github.com/jbandrivet/freeoptical/discussions), ou proposez directement du code par pull request. Le guide [CONTRIBUTING.md](CONTRIBUTING.md) explique comment compiler, tester et proposer une modification.
 
 ---
 

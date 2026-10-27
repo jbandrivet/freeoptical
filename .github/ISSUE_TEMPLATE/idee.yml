@@ -1,0 +1,22 @@
+name: Idée
+description: Proposer une amélioration ou une nouvelle fonction
+labels: [enhancement]
+body:
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Besoin
+      description: Quel problème voulez-vous résoudre, ou quel système voulez-vous concevoir ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+      description: Ce que FreeOptical pourrait faire (fonction, analyse, interface…).
+  - type: checkboxes
+    id: aide
+    attributes:
+      label: Participation
+      options:
+        - label: Je peux aider à le réaliser (code, tests, valeurs de référence)
