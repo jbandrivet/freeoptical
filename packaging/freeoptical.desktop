@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=FreeOptical
+Comment=Logiciel de conception et de simulation optique séquentielle (GUI Autonome & MCP)
+Exec=freeoptical
+Terminal=false
+Type=Application
+Categories=Science;Physics;Engineering;
+Keywords=optics;raytracing;zemax;lens;mcp;
