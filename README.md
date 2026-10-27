@@ -1,4 +1,4 @@
-# FreeOptical v0.1.0
+# FreeOptical
 
 **Logiciel open-source de conception et de simulation optique séquentielle pour Linux (TUI style MS-DOS & Serveur MCP)**
 
@@ -6,6 +6,18 @@ Développé intégralement en **Rust** (`ratatui`, `nalgebra`, `rmcp`), `freeopt
 1. **Un moteur physique de lancer de rayons séquentiel 3D** (calcul paraxial ABCD, lois de Snell-Descartes vectorielles 3D, surfaces planes, sphériques, coniques et asphériques paires, dispersion chromatique de Cauchy $n_d / V_d$, Spot Diagram polychromatique, aberration sphérique longitudinale et optimisation Damped Least Squares).
 2. **Une interface graphique native autonome (OpenGL `eframe` / `egui`) et Terminal (TUI) rétro style MS-DOS en français** (fond bleu marine `#000080`, bordures doubles `╔═══╗`, Éditeur de Données de Lentilles interactif, tracé 2D en coupe transversale et projection 3D isométrique filaire orientable).
 3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques de manière autonome en arrière-plan.
+
+---
+
+## Installation (Debian / Ubuntu, amd64)
+
+Télécharger le paquet `.deb` de la [dernière version](https://github.com/jbandrivet/freeoptical/releases/latest), puis :
+```bash
+sudo apt install ./freeoptical_*_amd64.deb
+```
+Les versions suivantes s'installent ensuite depuis le bouton **Mise à jour** de la fenêtre graphique.
+
+Depuis les sources : `cargo build --release` ; le paquet se construit avec `./packaging/make-deb.sh`.
 
 ---
 

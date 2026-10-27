@@ -101,7 +101,7 @@ pub fn dessiner_interface(f: &mut Frame, app: &AppState) {
 
 fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
     let mut spans = vec![Span::styled(
-        " ◄ FREEOPTICAL DOS v0.1 ► ",
+        format!(" ◄ FREEOPTICAL DOS v{} ► ", crate::maj::VERSION_COURANTE),
         Style::default()
             .bg(Color::Rgb(0, 128, 128))
             .fg(DOS_WHITE)
