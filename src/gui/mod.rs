@@ -55,11 +55,7 @@ fn calculer_rayons_reflechis_cubes(
 
     for idx in 0..sys.surfaces.len().saturating_sub(1) {
         let surf = &sys.surfaces[idx];
-        let comm_up = surf.commentaire.to_uppercase();
-        let est_cube = comm_up.contains("CUBE")
-            || comm_up.contains("SEPARAT")
-            || comm_up.contains("SÉPARAT");
-        if !est_cube || !est_verre(sys, surf) {
+        if !est_cube_separateur(sys, surf) {
             continue;
         }
 
@@ -152,6 +148,13 @@ fn tracer_polyligne(painter: &egui::Painter, pts: &[Pos2], epaisseur: f32, coule
     if pts.len() >= 2 {
         painter.add(Shape::line(pts.to_vec(), Stroke::new(epaisseur, couleur)));
     }
+}
+
+/// Face d'entrée d'un cube séparateur 50/50 (repéré par son commentaire)
+fn est_cube_separateur(sys: &OpticalSystem, surf: &Surface) -> bool {
+    let comm_up = surf.commentaire.to_uppercase();
+    (comm_up.contains("CUBE") || comm_up.contains("SEPARAT") || comm_up.contains("SÉPARAT"))
+        && est_verre(sys, surf)
 }
 
 /// Vrai si le milieu qui suit la surface est un verre réfractif (lentille ou cube)
@@ -769,23 +772,6 @@ impl eframe::App for FreeOpticalGuiApp {
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new(" Interféromètre de Bath ")
-                                    .monospace()
-                                    .strong()
-                                    .color(COL_DOS_YELLOW),
-                            )
-                            .fill(Color32::from_rgb(0, 90, 130)),
-                        )
-                        .clicked()
-                    {
-                        self.charger_systeme(
-                            creer_interferometre_bath(),
-                            "Interféromètre de Bath (632.8 nm) chargé.",
-                        );
-                    }
-                    if ui
-                        .add(
-                            egui::Button::new(
                                 RichText::new(" Optimiser DLS ")
                                     .monospace()
                                     .strong()
@@ -814,7 +800,7 @@ impl eframe::App for FreeOpticalGuiApp {
                         matches!(self.etat_maj, EtatMaj::Disponible(_) | EtatMaj::Installee(_));
                     let libelle = match &self.etat_maj {
                         EtatMaj::Disponible(v) => format!(" ⬆ Mise à jour v{} ", v.version),
-                        _ => " ⟳ Mise à jour ".to_string(),
+                        _ => " Mise à jour ".to_string(),
                     };
                     if ui
                         .add(
@@ -1294,10 +1280,14 @@ impl FreeOpticalGuiApp {
 
                         ui.label(RichText::new("Ouverture F/# & NA     :").monospace());
                         ui.label(
-                            RichText::new(format!(
-                                "F/{:.2}  (NA = {:.3})",
-                                p.nombre_ouverture_fnum, p.ouverture_numerique_image
-                            ))
+                            RichText::new(if p.focale_effl_mm.is_finite() {
+                                format!(
+                                    "F/{:.2}  (NA = {:.3})",
+                                    p.nombre_ouverture_fnum, p.ouverture_numerique_image
+                                )
+                            } else {
+                                "— (afocal)".to_string()
+                            })
                             .monospace()
                             .color(COL_DOS_WHITE),
                         );
@@ -1315,7 +1305,11 @@ impl FreeOpticalGuiApp {
 
                         ui.label(RichText::new("Rayon Disque d'Airy    :").monospace());
                         ui.label(
-                            RichText::new(format!("{:.2} µm", s.rayon_airy_um))
+                            RichText::new(if s.rayon_airy_um > 0.0 {
+                                format!("{:.2} µm", s.rayon_airy_um)
+                            } else {
+                                "—".to_string()
+                            })
                                 .monospace()
                                 .strong()
                                 .color(COL_DOS_YELLOW),
@@ -1344,9 +1338,16 @@ impl FreeOpticalGuiApp {
                 let diffraction_ok = s.rayon_rms_um <= s.rayon_airy_um && s.rayon_airy_um > 0.0;
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new("Diagnostic :").monospace());
-                    if diffraction_ok {
+                    if !p.focale_effl_mm.is_finite() {
                         ui.label(
-                            RichText::new("[OK] LIMITÉ PAR LA DIFFRACTION (RMS ≤ Airy)")
+                            RichText::new("AFOCAL : ajoutez des surfaces")
+                                .monospace()
+                                .strong()
+                                .color(COL_DOS_CYAN),
+                        );
+                    } else if diffraction_ok {
+                        ui.label(
+                            RichText::new("[OK] LIMITÉ PAR LA DIFFRACTION")
                                 .monospace()
                                 .strong()
                                 .color(COL_DOS_GREEN),
@@ -1374,12 +1375,26 @@ impl FreeOpticalGuiApp {
                 self.zoom = 1.0;
                 self.pan_offset = Vec2::ZERO;
             }
+            // Légende limitée à ce que le système affiche réellement
+            let sys = &self.systeme;
+            let mut legende = vec!["Cyan = Champ sur l'axe".to_string()];
+            if sys.champs_deg.len() > 1 && sys.champs_deg[1].1.abs() > 0.01 {
+                legende.push(format!("Vert = Champ {:.1}°", sys.champs_deg[1].1));
+            }
+            if sys.surfaces.iter().any(|surf| est_cube_separateur(sys, surf)) {
+                legende.push("Orange = Réfléchis 90° (Cube 50/50)".to_string());
+                legende.push("Magenta = Lame 45° / Miroir".to_string());
+            } else if sys
+                .surfaces
+                .iter()
+                .any(|surf| sys.catalogue.resoudre(&surf.verre).est_miroir())
+            {
+                legende.push("Magenta = Miroir".to_string());
+            }
             ui.label(
-                RichText::new(
-                    "  [Cyan = Transmis | Orange = Réfléchis 90° (Cube 50/50) | Magenta = Lame 45° / Miroir]",
-                )
-                .monospace()
-                .color(COL_DOS_GRAY),
+                RichText::new(format!("  [{}]", legende.join(" | ")))
+                    .monospace()
+                    .color(COL_DOS_GRAY),
             );
         });
 
@@ -1642,11 +1657,13 @@ impl FreeOpticalGuiApp {
                 self.pitch_3d_deg = 20.0;
                 self.zoom = 1.0;
             }
-            ui.label(
-                RichText::new("  (Cyan = Transmis | Orange = Réfléchis 90° Cube 50/50)")
-                    .monospace()
-                    .color(COL_DOS_YELLOW),
-            );
+            if self.systeme.surfaces.iter().any(|surf| est_cube_separateur(&self.systeme, surf)) {
+                ui.label(
+                    RichText::new("  (Cyan = Transmis | Orange = Réfléchis 90° Cube 50/50)")
+                        .monospace()
+                        .color(COL_DOS_YELLOW),
+                );
+            }
         });
 
         let dispo = ui.available_size();

@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
         let contenu = std::fs::read_to_string(chemin)?;
         serde_json::from_str::<OpticalSystem>(&contenu)?
     } else {
-        core::presets::creer_interferometre_bath()
+        OpticalSystem::nouveau("Nouveau Système Optique", core::glass::LAMBDA_D_NM)
     };
 
     if args.mcp {
