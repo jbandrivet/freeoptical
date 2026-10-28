@@ -23,11 +23,11 @@ const COULEURS_CHAMPS: [Color; 6] = [
     DOS_RED,
 ];
 
-fn libelle_champ(c: (f64, f64)) -> String {
+fn libelle_champ(u: &str, c: (f64, f64)) -> String {
     if c.0.abs() < 1e-12 {
-        format!("{:.2}°", c.1)
+        format!("{:.2}{u}", c.1)
     } else {
-        format!("({:.2}°, {:.2}°)", c.0, c.1)
+        format!("({:.2}{u}, {:.2}{u})", c.0, c.1)
     }
 }
 
@@ -49,7 +49,7 @@ fn aide_selection(app: &AppState, poly: bool) -> Line<'static> {
             "Champ {} [C]  |  λ {} [W]",
             "Field {} [C]  |  λ {} [W]",
             "Feld {} [C]  |  λ {} [W]",
-            libelle_champ(app.ondes.champ_deg(&app.systeme)),
+            libelle_champ(app.systeme.unite_champ(), app.ondes.champ_deg(&app.systeme)),
             lambda
         ),
         Style::default().fg(DOS_CYAN),
@@ -200,7 +200,7 @@ pub fn dessiner_ftm(f: &mut Frame, zone: Rect, app: &AppState) {
         .map(|r| {
             let t = r.frequences_cyc_mm.iter().copied().zip(r.tangentielle.iter().copied()).collect();
             let s = r.frequences_cyc_mm.iter().copied().zip(r.sagittale.iter().copied()).collect();
-            (t, s, libelle_champ(r.champ_deg))
+            (t, s, libelle_champ(app.systeme.unite_champ(), r.champ_deg))
         })
         .collect();
     let mut series = vec![
@@ -322,7 +322,7 @@ pub fn dessiner_courbes_rayons(f: &mut Frame, zone: Rect, app: &AppState) {
     };
     let e = echelle(c.transverse_t_um.iter().chain(&c.transverse_s_um).flatten().flatten().copied(), 1.0);
     let (t, s) = (serie(&c.transverse_t_um), serie(&c.transverse_s_um));
-    let titre_t = trf!("ΔY (µm) tangentielle — champ {} [C]", "ΔY (µm) tangential — field {} [C]", "ΔY (µm) tangential — Feld {} [C]", libelle_champ(c.champ_deg));
+    let titre_t = trf!("ΔY (µm) tangentielle — champ {} [C]", "ΔY (µm) tangential — field {} [C]", "ΔY (µm) tangential — Feld {} [C]", libelle_champ(app.systeme.unite_champ(), c.champ_deg));
     let titre_s = tr!("ΔX (µm) sagittale", "ΔX (µm) sagittal", "ΔX (µm) sagittal");
     f.render_widget(graphe(&titre_t, "py", [-1.0, 1.0], [-e, e], &t), decoupe[0]);
     f.render_widget(graphe(titre_s, "px", [-1.0, 1.0], [-e, e], &s), decoupe[1]);
@@ -390,6 +390,60 @@ pub fn dessiner_seidel(f: &mut Frame, zone: Rect, app: &AppState) {
     )));
     f.render_widget(
         Paragraph::new(lignes).block(bloc_dos(tr!("SEIDEL (mm)", "SEIDEL (mm)", "SEIDEL (mm)"), false)),
+        zone,
+    );
+}
+
+/// Tableau du spectrographe : position, dispersion, tache et résolution par longueur d'onde
+pub fn dessiner_spectre(f: &mut Frame, zone: Rect, app: &AppState) {
+    let Some(resultat) = app.ondes.spectre_calcule() else { return };
+    let s = match resultat {
+        Ok(s) => s,
+        Err(e) => return erreur(f, zone, e),
+    };
+    let unite_fente = if app.systeme.objet_fini().is_some() { "µm" } else { "\"" };
+    let mut lignes = vec![
+        aide_selection(app, true),
+        Line::from(Span::styled(
+            trf!(
+                "Spectre {:.2} mm — fente {} {} → image {:.2} µm",
+                "Spectrum {:.2} mm — slit {} {} → image {:.2} µm",
+                "Spektrum {:.2} mm — Spalt {} {} → Bild {:.2} µm",
+                s.longueur_spectre_mm,
+                s.largeur_fente,
+                unite_fente,
+                s.image_fente_um.unwrap_or(f64::NAN)
+            ),
+            Style::default().fg(DOS_YELLOW),
+        )),
+        Line::from(Span::styled(
+            tr!(
+                "   λ (nm)      X (mm)      Y (mm)    nm/mm   tache µm        R",
+                "   λ (nm)      X (mm)      Y (mm)    nm/mm   spot µm         R",
+                "   λ (nm)      X (mm)      Y (mm)    nm/mm   Spot µm         R"
+            ),
+            Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let hauteur = zone.height.saturating_sub(5).max(1) as usize;
+    let pas = s.longueurs_onde_nm.len().div_ceil(hauteur).max(1);
+    for k in (0..s.longueurs_onde_nm.len()).step_by(pas) {
+        let (x, y) = s.positions_mm[k].unwrap_or((f64::NAN, f64::NAN));
+        lignes.push(Line::from(Span::styled(
+            format!(
+                "{:>9.1} {:>11.4} {:>11.4} {:>8.3} {:>9.2} {:>8.0}",
+                s.longueurs_onde_nm[k],
+                x,
+                y,
+                s.dispersion_nm_mm[k].unwrap_or(f64::NAN),
+                s.tache_rms_um[k].unwrap_or(f64::NAN),
+                s.resolution[k].unwrap_or(f64::NAN)
+            ),
+            Style::default().fg(couleur_lambda(s.longueurs_onde_nm[k])),
+        )));
+    }
+    f.render_widget(
+        Paragraph::new(lignes).block(bloc_dos(tr!("SPECTROGRAPHE", "SPECTROGRAPH", "SPEKTROGRAPH"), false)),
         zone,
     );
 }

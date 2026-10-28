@@ -38,6 +38,8 @@ pub enum ActiveView {
     CourbureChamp,
     /// Coefficients de Seidel par surface
     Seidel,
+    /// Spectrographe : position des longueurs d'onde, dispersion, résolution
+    Spectre,
 }
 
 impl ActiveView {
@@ -78,11 +80,16 @@ impl ActiveView {
                 "ANALYSIS: SEIDEL COEFFICIENTS PER SURFACE",
                 "ANALYSE: SEIDEL-KOEFFIZIENTEN JE FLÄCHE"
             ),
+            ActiveView::Spectre => tr!(
+                "ANALYSE : SPECTROGRAPHE (DISPERSION, IMAGE DE LA FENTE, RÉSOLUTION)",
+                "ANALYSIS: SPECTROGRAPH (DISPERSION, SLIT IMAGE, RESOLUTION)",
+                "ANALYSE: SPEKTROGRAPH (DISPERSION, SPALTBILD, AUFLÖSUNG)"
+            ),
         }
     }
 
     /// Toutes les vues, dans l'ordre des touches F1 à F8
-    pub const TOUTES: [ActiveView; 11] = [
+    pub const TOUTES: [ActiveView; 12] = [
         ActiveView::Coupe2D,
         ActiveView::Filaire3D,
         ActiveView::SpotDiagram,
@@ -94,6 +101,7 @@ impl ActiveView {
         ActiveView::CourbesRayons,
         ActiveView::CourbureChamp,
         ActiveView::Seidel,
+        ActiveView::Spectre,
     ];
 
     /// Libellé court pour les onglets
@@ -110,6 +118,7 @@ impl ActiveView {
             ActiveView::CourbesRayons => tr!("Rayons", "Ray fans", "Strahlfächer"),
             ActiveView::CourbureChamp => tr!("Champ", "Field", "Bildfeld"),
             ActiveView::Seidel => tr!("Seidel", "Seidel", "Seidel"),
+            ActiveView::Spectre => tr!("Spectro", "Spectro", "Spektro"),
         }
     }
 }
@@ -221,6 +230,7 @@ pub fn items_menu(menu_idx: usize) -> Vec<&'static str> {
             tr!("9. Courbes de rayons (9)", "9. Ray fans (9)", "9. Strahlfächer (9)"),
             tr!("10. Courbure de champ & distorsion (0)", "10. Field curvature & distortion (0)", "10. Bildfeldwölbung & Verzeichnung (0)"),
             tr!("11. Coefficients de Seidel", "11. Seidel coefficients", "11. Seidel-Koeffizienten"),
+            tr!("12. Spectrographe (dispersion, résolution)", "12. Spectrograph (dispersion, resolution)", "12. Spektrograph (Dispersion, Auflösung)"),
         ],
         3 => vec![
             tr!(
@@ -414,7 +424,7 @@ impl AppState {
                 }
                 SurfaceType::Spherique => SurfaceType::Conique,
                 SurfaceType::Conique => SurfaceType::Aspherique,
-                SurfaceType::Aspherique => {
+                SurfaceType::Aspherique | SurfaceType::Ideale => {
                     surf.rayon = f64::INFINITY;
                     SurfaceType::Plane
                 }
@@ -587,6 +597,9 @@ impl AppState {
             ActiveView::Seidel => {
                 self.ondes.seidel(&self.systeme);
             }
+            ActiveView::Spectre => {
+                self.ondes.spectre(&self.systeme);
+            }
             _ => {}
         }
     }
@@ -662,6 +675,7 @@ impl AppState {
             (2, 8) => self.vue_active = ActiveView::CourbesRayons,
             (2, 9) => self.vue_active = ActiveView::CourbureChamp,
             (2, 10) => self.vue_active = ActiveView::Seidel,
+            (2, 11) => self.vue_active = ActiveView::Spectre,
             // Menu Outils
             (3, 0) => self.lancer_optimisation_rapide(),
             (3, 1) => self.mise_au_point_paraxiale(),

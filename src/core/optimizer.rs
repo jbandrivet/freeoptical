@@ -150,7 +150,7 @@ fn residus_spot_champs(systeme: &OpticalSystem, poids: f64, residus: &mut Vec<f6
         for &(lambda, wl) in &lambdas {
             for &(px, py) in &points {
                 let tr = tracer_rayon_unique(systeme, vise.rayon(px, py, champ.0, champ.1, lambda), champ, (px, py));
-                impacts.push((tr.impact_plan_image().map(|h| (h.point_local.x, h.point_local.y)), (wl / total_l).sqrt()));
+                impacts.push((tr.impact_plan_image().map(|h| crate::core::raytracer::coordonnees_image(systeme, h)), (wl / total_l).sqrt()));
             }
         }
         let valides: Vec<(f64, f64)> = impacts.iter().filter_map(|i| i.0).collect();
@@ -489,6 +489,8 @@ mod tests_merite {
             champs_deg: vec![(0.0, 0.0)],
             surfaces: vec![m, Surface::plan_image(10.0)],
             catalogue: Default::default(),
+            distance_objet_mm: None,
+            afocal: false,
         };
         let vars = vec![OptimizationVariable { index_surface: 0, parametre: "conique".into() }];
         optimiser_systeme_dls(&mut sys, &vars, &[cible("opd_rms_champs", 0.0)], 30);
@@ -510,6 +512,8 @@ mod tests_merite {
             champs_deg: vec![(0.0, 0.0)],
             surfaces: vec![m, Surface::plan_image(10.0)],
             catalogue: Default::default(),
+            distance_objet_mm: None,
+            afocal: false,
         };
         let avant = calculer_spot_diagram(&sys, (0.0, 0.0), 6).rayon_rms_um;
         let vars = vec![OptimizationVariable { index_surface: 0, parametre: "a4".into() }];

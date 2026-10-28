@@ -84,6 +84,12 @@ Die eingebauten Gläser (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-S
 - Eine zentrale Obstruktion hält die Strahlen auf, die näher als ihr Radius an der Flächenachse vorbeigehen; Spot, Wellenfront, PSF und MTF berücksichtigen sie (der Referenz-Hauptstrahl wird ohne Obstruktion verfolgt).
 - Beugungsgitter: vektorielle Gittergleichung, Linien parallel zur lokalen X-Achse der Fläche, eine positive Ordnung lenkt das Licht nach lokal +Y ab; in Reflexion auf einem Spiegel, sonst in Transmission.
 
+#### Nahe Objekte, afokale Systeme und Spektrographen
+- **Systemeinstellungen** (Menü `Bearbeiten`): Objekt im Unendlichen (Felder in Grad) oder in endlicher Entfernung (Felder als Objekthöhen in mm: Mikroskope, Relais, Projektoren, Spektrographenspalt), Öffnung (Eintrittspupille, F/# oder objektseitige NA), Felder und Wellenlängen mit Gewichten und Referenz. Die paraxiale Schnittweite wird zum Bildabstand, die Übersicht zeigt den Abbildungsmaßstab.
+- **Afokaler Bildraum** (Okulare, Zielfernrohre, Ferngläser, Strahlaufweiter): Spot und PSF in µrad, MTF in Perioden/mrad, Wellenfront bezogen auf eine ebene Welle, Bildfeldwölbung in Dioptrien, Winkelvergrößerung.
+- **Ideale Linse** (Typ `IDEAL`, einstellbare Brennweite): perfekte Linse für alle Konjugierten, um einen idealen Kollimator oder eine ideale Kamera zu simulieren oder das Bild eines afokalen Systems zu betrachten.
+- **Spektrograph** (Ansicht **F12**): Position jeder Wellenlänge auf dem Detektor, reziproke Lineardispersion (nm/mm), Spot je Wellenlänge, Spaltbild und Auflösungsvermögen R = λ/Δλ, für eine Spaltbreite in µm (nahes Objekt) oder Bogensekunden (Objekt im Unendlichen); das Spotdiagramm kann jede Wellenlänge um ihren eigenen Schwerpunkt zeigen. Beispiel: `Datei` → `Gitterspektrograph laden`.
+
 #### Wellenoptische Analysen: Wellenfront, PSF und MTF
 Die Ansichten `F6`, `F7` und `F8` (grafisches Fenster und TUI) gelten für das gewählte Feld und die gewählte Wellenlänge (oder alle gewichteten Wellenlängen).
 - **Wellenfront**: optische Wegdifferenz bezogen auf die Referenzkugel um das Bild des Hauptstrahls durch die paraxiale Austrittspupille (Zemax-Konvention), positiv, wenn der optische Weg des Strahls länger ist; Spitze-Tal, RMS, Strehl nach Maréchal und 37 Zernike-Koeffizienten (Normierung und Reihenfolge nach Noll).
@@ -124,6 +130,8 @@ freeoptical --mcp
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangentiale und sagittale MTF, Beugungsgrenze und Strehl der PSF.
 - `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel-Koeffizienten je Fläche, Bildfeldwölbung und Verzeichnung, Strahlfächer.
 - `importer_catalogue_agf(chemin)`: importiert einen Zemax-Glaskatalog `.agf`.
+- `definir_systeme(...)`: Objekt (unendlich oder Abstand), afokal, Öffnung, Felder, Wellenlängen.
+- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: Positionen, Dispersion, Spot, Spaltbild und Auflösung eines Spektrographen.
 - `modifier_surface` akzeptiert auch `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` und `reseau_ordre`; `optimiser_systeme` akzeptiert die Variablen `a4` bis `a10` und die Ziele `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---

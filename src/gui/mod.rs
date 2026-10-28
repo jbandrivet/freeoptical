@@ -4,6 +4,7 @@
 
 mod aberrations;
 mod optimisation;
+mod systeme;
 mod ondes;
 
 use crate::{
@@ -282,6 +283,9 @@ pub struct FreeOpticalGuiApp {
     /// Demi-largeur de la PSF affichée, en rayons d'Airy
     pub psf_zoom: f32,
     pub fenetre_optim: bool,
+    pub fenetre_systeme: bool,
+    /// Spot diagram : chaque longueur d'onde autour de son propre centroïde (spectrographes)
+    pub spot_par_lambda: bool,
     pub reglages_optim: optimisation::ReglagesOptimisation,
     /// Résultat du dernier import (réussi, message, avertissements) affiché dans la fenêtre d'import
     pub bilan_import: Option<(bool, String, Vec<String>)>,
@@ -319,6 +323,8 @@ impl FreeOpticalGuiApp {
             psf_log: false,
             psf_zoom: 8.0,
             fenetre_optim: false,
+            fenetre_systeme: false,
+            spot_par_lambda: false,
             reglages_optim: optimisation::ReglagesOptimisation::default(),
             dossier_import: std::env::current_dir()
                 .map(|d| d.display().to_string())
@@ -761,6 +767,8 @@ impl eframe::App for FreeOpticalGuiApp {
                 self.vue_active = ActiveView::CourbureChamp;
             } else if i.key_pressed(Key::F11) {
                 self.vue_active = ActiveView::Seidel;
+            } else if i.key_pressed(Key::F12) {
+                self.vue_active = ActiveView::Spectre;
             }
         });
 
@@ -833,6 +841,17 @@ impl eframe::App for FreeOpticalGuiApp {
                             ui.close();
                         }
                         if ui
+                            .button(tr!("Charger un spectrographe à réseau (exemple)", "Load a grating spectrograph (example)", "Gitterspektrograph laden (Beispiel)"))
+                            .clicked()
+                        {
+                            self.charger_systeme(
+                                crate::core::presets::creer_spectrographe_reseau(),
+                                tr!("Spectrographe à réseau chargé : vue F12.", "Grating spectrograph loaded: view F12.", "Gitterspektrograph geladen: Ansicht F12."),
+                            );
+                            self.vue_active = ActiveView::Spectre;
+                            ui.close();
+                        }
+                        if ui
                             .button(tr!("6. Importer TDESIGN / LENSDES / RAYTRACE ou un catalogue de verres (.agf)…", "6. Import TDESIGN / LENSDES / RAYTRACE or a glass catalogue (.agf)…", "6. TDESIGN / LENSDES / RAYTRACE oder Glaskatalog (.agf) importieren…"))
                             .clicked()
                         {
@@ -896,6 +915,18 @@ impl eframe::App for FreeOpticalGuiApp {
                                 s.est_diaphragme = i == self.ligne_selectionnee;
                             }
                             self.recalculer();
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui
+                            .button(tr!(
+                                "Paramètres du système (objet, ouverture, champs, longueurs d'onde)…",
+                                "System settings (object, aperture, fields, wavelengths)…",
+                                "Systemeinstellungen (Objekt, Öffnung, Felder, Wellenlängen)…"
+                            ))
+                            .clicked()
+                        {
+                            self.fenetre_systeme = true;
                             ui.close();
                         }
                     });
@@ -1148,12 +1179,14 @@ impl eframe::App for FreeOpticalGuiApp {
                     ActiveView::CourbesRayons => self.dessiner_courbes_rayons(ui),
                     ActiveView::CourbureChamp => self.dessiner_courbure_champ(ui),
                     ActiveView::Seidel => self.dessiner_seidel(ui),
+                    ActiveView::Spectre => self.dessiner_spectre(ui),
                 });
             });
 
         self.dessiner_fenetre_maj(&ctx);
         self.dessiner_fenetre_import(&ctx);
         self.dessiner_fenetre_optimisation(&ctx);
+        self.dessiner_fenetre_systeme(&ctx);
 
         // Glisser-déposer d'un fichier système (.json, .TDS, .RLD, .DES) sur la fenêtre
         let depose = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| {
@@ -1300,6 +1333,9 @@ impl FreeOpticalGuiApp {
                     champ(ui, "Y°", &mut surf.inclinaison_deg[1], 0.1, tr!("Rotation autour de Y, après X (degrés)", "Rotation about Y, after X (degrees)", "Drehung um Y, nach X (Grad)"));
                     champ(ui, tr!("Obstr. r", "Obstr. r", "Obstr. r"), &mut surf.rayon_obstruction, 0.1, tr!("Rayon de l'obstruction centrale (mm)", "Central obstruction radius (mm)", "Radius der zentralen Obstruktion (mm)"));
                     champ(ui, tr!("Réseau tr/mm", "Grating l/mm", "Gitter L/mm"), &mut surf.reseau_traits_mm, 1.0, tr!("Traits par mm (0 = pas de réseau), traits parallèles à X local", "Lines per mm (0 = no grating), lines parallel to local X", "Linien pro mm (0 = kein Gitter), Linien parallel zu lokalem X"));
+                    if surf.type_surface == SurfaceType::Ideale {
+                        champ(ui, tr!("Focale idéale", "Ideal focal", "Ideale Brennw."), &mut surf.focale_ideale_mm, 0.5, tr!("Focale de la lentille idéale (mm)", "Focal length of the ideal lens (mm)", "Brennweite der idealen Linse (mm)"));
+                    }
                     ui.label(RichText::new(tr!("ordre", "order", "Ordnung")).monospace().color(COL_DOS_CYAN));
                     if ui.add(egui::DragValue::new(&mut surf.reseau_ordre).range(-10..=10)).changed() {
                         modifie = true;
@@ -1382,6 +1418,7 @@ impl FreeOpticalGuiApp {
                                             SurfaceType::Spherique,
                                             SurfaceType::Conique,
                                             SurfaceType::Aspherique,
+                                            SurfaceType::Ideale,
                                         ] {
                                             if ui
                                                 .selectable_value(
@@ -1391,7 +1428,12 @@ impl FreeOpticalGuiApp {
                                                 )
                                                 .changed()
                                             {
-                                                if t == SurfaceType::Plane {
+                                                if t == SurfaceType::Ideale {
+                                                    surf.rayon = f64::INFINITY;
+                                                    if surf.focale_ideale_mm == 0.0 {
+                                                        surf.focale_ideale_mm = 100.0;
+                                                    }
+                                                } else if t == SurfaceType::Plane {
                                                     surf.rayon = f64::INFINITY;
                                                 } else if !surf.rayon.is_finite() {
                                                     surf.rayon = 100.0;
@@ -1637,15 +1679,35 @@ impl FreeOpticalGuiApp {
                                 .color(COL_DOS_WHITE),
                         );
                         ui.end_row();
+                        if let Some(d) = self.systeme.objet_fini() {
+                            ui.label(RichText::new(tr!("Objet / Grandissement  :", "Object / Magnification :", "Objekt / Abbildungsm.  :")).monospace());
+                            ui.label(
+                                RichText::new(format!("{:.2} mm / {:+.4}×", d, p.grandissement))
+                                    .monospace()
+                                    .strong()
+                                    .color(COL_DOS_CYAN),
+                            );
+                            ui.end_row();
+                        }
+                        if self.systeme.afocal {
+                            ui.label(RichText::new(tr!("Grossissement angulaire:", "Angular magnification  :", "Winkelvergrößerung     :")).monospace());
+                            ui.label(
+                                RichText::new(format!("{:+.4}×", p.grossissement_angulaire))
+                                    .monospace()
+                                    .strong()
+                                    .color(COL_DOS_CYAN),
+                            );
+                            ui.end_row();
+                        }
                     });
 
                 ui.add_space(6.0);
                 let diffraction_ok = s.rayon_rms_um <= s.rayon_airy_um && s.rayon_airy_um > 0.0;
                 ui.horizontal_wrapped(|ui| {
                     ui.label(RichText::new(tr!("Diagnostic :", "Diagnosis:", "Diagnose:")).monospace());
-                    if !p.focale_effl_mm.is_finite() {
+                    if !p.focale_effl_mm.is_finite() && !self.systeme.afocal {
                         ui.label(
-                            RichText::new(tr!("AFOCAL : ajoutez des surfaces", "AFOCAL: add surfaces", "AFOKAL: Flächen hinzufügen"))
+                            RichText::new(tr!("AFOCAL : ajoutez des surfaces ou cochez « afocal »", "AFOCAL: add surfaces or tick \"afocal\"", "AFOKAL: Flächen hinzufügen oder „afokal“ ankreuzen"))
                                 .monospace()
                                 .strong()
                                 .color(COL_DOS_CYAN),
@@ -2158,10 +2220,19 @@ impl FreeOpticalGuiApp {
     /// Dessine le Spot Diagram polychromatique et le disque d'Airy en traits continus terminal
     fn dessiner_canevas_spot(&mut self, ui: &mut egui::Ui) {
         let spot = &self.spot;
+        let u = if self.systeme.afocal { "µrad" } else { "µm" };
+        ui.checkbox(
+            &mut self.spot_par_lambda,
+            tr!(
+                "Chaque longueur d'onde autour de son centroïde (spectrographes)",
+                "Each wavelength about its own centroid (spectrographs)",
+                "Jede Wellenlänge um ihren eigenen Schwerpunkt (Spektrographen)"
+            ),
+        );
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(trf!(
-                    "Rayons transmis : {}  |  Rayon RMS = {:.2} µm  |  Rayon GEO = {:.2} µm  |  Disque d'Airy (jaune) = {:.2} µm", "Rays transmitted: {}  |  RMS radius = {:.2} µm  |  GEO radius = {:.2} µm  |  Airy disk (yellow) = {:.2} µm", "Durchgelassene Strahlen: {}  |  RMS-Radius = {:.2} µm  |  GEO-Radius = {:.2} µm  |  Airy-Scheibchen (gelb) = {:.2} µm",
+                    "Rayons transmis : {}  |  Rayon RMS = {:.2} {u}  |  Rayon GEO = {:.2} {u}  |  Disque d'Airy (jaune) = {:.2} {u}", "Rays transmitted: {}  |  RMS radius = {:.2} {u}  |  GEO radius = {:.2} {u}  |  Airy disk (yellow) = {:.2} {u}", "Durchgelassene Strahlen: {}  |  RMS-Radius = {:.2} {u}  |  GEO-Radius = {:.2} {u}  |  Airy-Scheibchen (gelb) = {:.2} {u}",
                     spot.nb_rayons_valides, spot.rayon_rms_um, spot.rayon_geo_um, spot.rayon_airy_um
                 ))
                 .monospace()
@@ -2178,7 +2249,30 @@ impl FreeOpticalGuiApp {
         let cote = rect.width().min(rect.height()) * 0.88;
         let centre = rect.center();
         let airy_mm = spot.rayon_airy_um * 1e-3;
-        let geo_mm = spot.rayon_geo_um * 1e-3;
+        // Centroïde de chaque longueur d'onde (option spectrographe) ou centroïde commun
+        let mut centroides: std::collections::HashMap<u64, (f64, f64, f64)> = std::collections::HashMap::new();
+        for pt in &spot.points {
+            let e = centroides.entry(pt.longueur_onde_nm.to_bits()).or_insert((0.0, 0.0, 0.0));
+            *e = (e.0 + pt.x_mm, e.1 + pt.y_mm, e.2 + 1.0);
+        }
+        let centre_de = |l: f64| -> (f64, f64) {
+            if self.spot_par_lambda {
+                centroides.get(&l.to_bits()).map(|c| (c.0 / c.2, c.1 / c.2)).unwrap_or(spot.centroide_mm)
+            } else {
+                spot.centroide_mm
+            }
+        };
+        let geo_mm = if self.spot_par_lambda {
+            spot.points
+                .iter()
+                .map(|p| {
+                    let c = centre_de(p.longueur_onde_nm);
+                    (p.x_mm - c.0).hypot(p.y_mm - c.1)
+                })
+                .fold(0.0, f64::max)
+        } else {
+            spot.rayon_geo_um * 1e-3
+        };
         let demi_echelle = (geo_mm.max(airy_mm) * 1.35).max(0.002);
         let echelle = (cote as f64 * 0.5) / demi_echelle;
 
@@ -2202,17 +2296,16 @@ impl FreeOpticalGuiApp {
         }
 
         // Impacts des rayons (carrés lumineux style terminal)
-        let (cx, cy) = spot.centroide_mm;
         for pt in &spot.points {
+            let (cx, cy) = centre_de(pt.longueur_onde_nm);
             let px = centre.x + ((pt.x_mm - cx) * echelle) as f32;
             let py = centre.y - ((pt.y_mm - cy) * echelle) as f32;
-            let col = if pt.longueur_onde_nm < 520.0 {
-                COL_DOS_CYAN
-            } else if pt.longueur_onde_nm <= 610.0 {
-                COL_DOS_GREEN
-            } else {
-                COL_DOS_RED
-            };
+            let (r, g, b) = crate::core::spectre::couleur_spectrale(pt.longueur_onde_nm);
+            let col = Color32::from_rgb(
+                (55.0 + 200.0 * r) as u8,
+                (55.0 + 200.0 * g) as u8,
+                (55.0 + 200.0 * b) as u8,
+            );
             painter.circle_filled(Pos2::new(px, py), 2.0, col);
         }
     }

@@ -43,11 +43,11 @@ fn palette_psf(t: f64) -> Color32 {
     Color32::from_rgb((c.r() as f32 * b) as u8, (c.g() as f32 * b) as u8, (c.b() as f32 * b) as u8)
 }
 
-pub(super) fn libelle_champ(c: (f64, f64)) -> String {
+pub(super) fn libelle_champ(u: &str, c: (f64, f64)) -> String {
     if c.0.abs() < 1e-12 {
-        format!("{:.2}°", c.1)
+        format!("{:.2}{u}", c.1)
     } else {
-        format!("({:.2}°, {:.2}°)", c.0, c.1)
+        format!("({:.2}{u}, {:.2}{u})", c.0, c.1)
     }
 }
 
@@ -61,10 +61,10 @@ impl FreeOpticalGuiApp {
             if !sys.champs_deg.is_empty() {
                 ui.label(RichText::new(tr!("Champ :", "Field:", "Feld:")).monospace());
                 egui::ComboBox::from_id_salt("choix_champ_ondes")
-                    .selected_text(libelle_champ(sys.champs_deg[champ]))
+                    .selected_text(libelle_champ(sys.unite_champ(), sys.champs_deg[champ]))
                     .show_ui(ui, |ui| {
                         for (i, &c) in sys.champs_deg.iter().enumerate() {
-                            ui.selectable_value(&mut champ, i, libelle_champ(c));
+                            ui.selectable_value(&mut champ, i, libelle_champ(sys.unite_champ(), c));
                         }
                     });
             }
@@ -104,6 +104,7 @@ impl FreeOpticalGuiApp {
     }
 
     pub(super) fn dessiner_front_onde(&mut self, ui: &mut egui::Ui) {
+        let unite = self.systeme.unite_champ();
         self.selecteurs_ondes(ui, false);
         let generation = self.ondes.generation;
         let carte = match self.ondes.front_onde(&self.systeme) {
@@ -170,7 +171,7 @@ impl FreeOpticalGuiApp {
                         ui.label(RichText::new(valeur).monospace().strong().color(couleur));
                     });
                 };
-                ligne(ui, tr!("Champ           :", "Field           :", "Feld            :"), libelle_champ(carte.champ_deg), COL_DOS_WHITE);
+                ligne(ui, tr!("Champ           :", "Field           :", "Feld            :"), libelle_champ(unite, carte.champ_deg), COL_DOS_WHITE);
                 ligne(ui, tr!("Longueur d'onde :", "Wavelength      :", "Wellenlänge     :"), format!("{:.1} nm", carte.longueur_onde_nm), COL_DOS_WHITE);
                 ligne(ui, tr!("Crête-à-creux   :", "Peak-to-valley  :", "Spitze-Tal      :"), format!("{:.4} λ", carte.pv_ondes), COL_DOS_YELLOW);
                 ligne(ui, tr!("Écart RMS       :", "RMS             :", "RMS             :"), format!("{:.4} λ", carte.rms_ondes), COL_DOS_YELLOW);
@@ -311,6 +312,7 @@ impl FreeOpticalGuiApp {
     }
 
     pub(super) fn dessiner_ftm(&mut self, ui: &mut egui::Ui) {
+        let unite = self.systeme.unite_champ();
         self.selecteurs_ondes(ui, true);
         let champs = self.systeme.champs_deg.clone();
         let resultats = self.ondes.ftm_champs(&self.systeme).clone();
@@ -343,13 +345,13 @@ impl FreeOpticalGuiApp {
                             "■ {} : T {:.2} / S {:.2} à {:.0} c/mm",
                             "■ {}: T {:.2} / S {:.2} at {:.0} c/mm",
                             "■ {}: T {:.2} / S {:.2} bei {:.0} P/mm",
-                            libelle_champ(f.champ_deg),
+                            libelle_champ(unite, f.champ_deg),
                             f.tangentielle[k],
                             f.sagittale[k],
                             f.frequences_cyc_mm[k]
                         )
                     }
-                    Err(e) => format!("■ {} : {}", libelle_champ(champs.get(i).copied().unwrap_or_default()), e),
+                    Err(e) => format!("■ {} : {}", libelle_champ(unite, champs.get(i).copied().unwrap_or_default()), e),
                 };
                 ui.label(RichText::new(texte).monospace().color(c));
             }

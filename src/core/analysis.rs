@@ -1,5 +1,5 @@
 use crate::core::paraxial::calculer_paraxial;
-use crate::core::raytracer::{VisePupille, tracer_grille_hexapolaire, tracer_rayon_unique};
+use crate::core::raytracer::{VisePupille, coordonnees_image, tracer_grille_hexapolaire, tracer_rayon_unique};
 use crate::core::types::OpticalSystem;
 use serde::{Deserialize, Serialize};
 
@@ -53,8 +53,8 @@ pub fn calculer_spot_diagram(
         for tr in rayons {
             if let Some(hit) = tr.impact_plan_image() {
                 points.push(SpotPoint {
-                    x_mm: hit.point_local.x,
-                    y_mm: hit.point_local.y,
+                    x_mm: coordonnees_image(systeme, hit).0,
+                    y_mm: coordonnees_image(systeme, hit).1,
                     longueur_onde_nm: lambda,
                     champ_deg,
                 });
@@ -98,7 +98,12 @@ pub fn calculer_spot_diagram(
     let paraxial = calculer_paraxial(systeme);
     // r_Airy (µm) = 1.22 * λ(µm) * F/#
     let lambda_um = systeme.longueur_onde_ref_nm * 1e-3;
-    let rayon_airy_um = 1.22 * lambda_um * paraxial.nombre_ouverture_fnum;
+    // En afocal : rayon angulaire 1,22 λ / D exprimé en µrad (sur une lentille idéale de 1000 mm)
+    let rayon_airy_um = if systeme.afocal {
+        1.22 * lambda_um * 1000.0 / paraxial.diametre_pupille_sortie_mm.max(1e-9)
+    } else {
+        1.22 * lambda_um * paraxial.nombre_ouverture_fnum
+    };
 
     SpotDiagramResult {
         points,

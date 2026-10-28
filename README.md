@@ -84,6 +84,12 @@ Les verres intégrés (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK1
 - Une obstruction centrale arrête les rayons qui passent à moins de son rayon de l'axe de la surface ; le spot, le front d'onde, la PSF et la FTM en tiennent compte (le rayon principal de référence est tracé sans obstruction).
 - Réseau de diffraction : équation vectorielle des réseaux, traits parallèles à l'axe X local de la surface, un ordre positif dévie la lumière vers +Y local ; en réflexion sur un miroir, en transmission sinon.
 
+#### Objets proches, systèmes afocaux et spectrographes
+- **Paramètres du système** (menu `Édition`) : objet à l'infini (champs en degrés) ou à distance finie (champs en hauteurs d'objet, mm : microscopes, relais, projecteurs, fente de spectrographe), ouverture (pupille d'entrée, F/# ou ouverture numérique objet), champs et longueurs d'onde avec poids et référence. Le tirage paraxial devient la distance de l'image et le bilan affiche le grandissement.
+- **Espace image afocal** (oculaires, lunettes de visée, jumelles, élargisseurs de faisceau) : spot et PSF en µrad, FTM en cycles/mrad, front d'onde rapporté à une onde plane, courbure de champ en dioptries, grossissement angulaire.
+- **Lentille idéale** (type `IDEALE`, focale réglable) : lentille parfaite pour tous les conjugués, pour simuler un collimateur ou une caméra idéale, ou regarder l'image d'un système afocal.
+- **Spectrographe** (vue **F12**) : position de chaque longueur d'onde sur le détecteur, dispersion linéaire inverse (nm/mm), tache par longueur d'onde, image de la fente et pouvoir de résolution R = λ/Δλ, pour une largeur de fente en µm (objet proche) ou en secondes d'arc (objet à l'infini) ; le spot diagram peut centrer chaque longueur d'onde sur son propre centroïde. Exemple fourni : `Fichier` → `Charger un spectrographe à réseau`.
+
 #### Analyses ondulatoires : front d'onde, PSF et FTM
 Les vues `F6`, `F7` et `F8` (fenêtre graphique et TUI) s'appliquent au champ et à la longueur d'onde choisis (ou à toutes les longueurs d'onde pondérées).
 - **Front d'onde** : différence de marche rapportée à la sphère de référence centrée sur l'image du rayon principal et passant par la pupille de sortie paraxiale (convention de Zemax), positive quand le chemin optique du rayon est plus long ; crête-à-creux, RMS, Strehl de Maréchal et 37 coefficients de Zernike (normalisation et ordre de Noll).
@@ -124,6 +130,8 @@ freeoptical --mcp
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)` : FTM tangentielle et sagittale, limite de diffraction et Strehl de la PSF.
 - `analyser_aberrations(champ_index, longueur_onde_nm)` : coefficients de Seidel par surface, courbure de champ et distorsion, courbes de rayons.
 - `importer_catalogue_agf(chemin)` : importe un catalogue de verres Zemax `.agf`.
+- `definir_systeme(...)` : objet (infini ou distance), afocal, ouverture, champs, longueurs d'onde.
+- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)` : positions, dispersion, tache, image de fente et résolution d'un spectrographe.
 - `modifier_surface` accepte aussi `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` et `reseau_ordre` ; `optimiser_systeme` accepte les variables `a4` à `a10` et les cibles `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---

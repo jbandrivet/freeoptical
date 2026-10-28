@@ -35,6 +35,8 @@ pub fn creer_interferometre_bath() -> OpticalSystem {
         champs_deg: vec![(0.0, 0.0)],
         surfaces: vec![s0, s1, s2, s3, s4, s5],
         catalogue: Default::default(),
+        distance_objet_mm: None,
+        afocal: false,
     }
 }
 
@@ -58,6 +60,8 @@ pub fn creer_singlet_aspherique() -> OpticalSystem {
         champs_deg: vec![(0.0, 0.0)],
         surfaces: vec![s1, s2, s3],
         catalogue: Default::default(),
+        distance_objet_mm: None,
+        afocal: false,
     }
 }
 
@@ -83,6 +87,41 @@ pub fn creer_telescope_cassegrain() -> OpticalSystem {
         champs_deg: vec![(0.0, 0.0)],
         surfaces: vec![s1, s2, s3],
         catalogue: Default::default(),
+        distance_objet_mm: None,
+        afocal: false,
+    }
+}
+
+/// Spectrographe à réseau : fente (objet à 200 mm), collimateur idéal f = 200 mm, réseau en
+/// transmission 600 traits/mm, caméra idéale f = 200 mm ; domaine 400 à 700 nm
+pub fn creer_spectrographe_reseau() -> OpticalSystem {
+    let mut collimateur = Surface::nouvelle(SurfaceType::Ideale, f64::INFINITY, 20.0, "AIR", 15.0);
+    collimateur.focale_ideale_mm = 200.0;
+    collimateur.commentaire = tr!("Collimateur (idéal)", "Collimator (ideal)", "Kollimator (ideal)").to_string();
+    let mut reseau = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 30.0, "AIR", 15.0);
+    reseau.reseau_traits_mm = 600.0;
+    reseau.reseau_ordre = 1;
+    reseau.est_diaphragme = true;
+    reseau.commentaire = tr!("Réseau 600 tr/mm, ordre 1", "Grating 600 l/mm, order 1", "Gitter 600 L/mm, Ordnung 1").to_string();
+    let mut camera = Surface::nouvelle(SurfaceType::Ideale, f64::INFINITY, 200.0, "AIR", 40.0);
+    camera.focale_ideale_mm = 200.0;
+    camera.commentaire = tr!("Caméra (idéale)", "Camera (ideal)", "Kamera (ideal)").to_string();
+    let mut detecteur = Surface::plan_image(80.0);
+    detecteur.commentaire = tr!("Détecteur", "Detector", "Detektor").to_string();
+    OpticalSystem {
+        nom: tr!("Spectrographe à réseau 600 tr/mm", "Grating spectrograph 600 l/mm", "Gitterspektrograph 600 L/mm").to_string(),
+        longueur_onde_ref_nm: 550.0,
+        longueurs_onde: [400.0, 475.0, 550.0, 625.0, 700.0]
+            .iter()
+            .map(|&l| Wavelength::new(l, 1.0, format!("{l:.0} nm")))
+            .collect(),
+        // Faisceau F/10 issu de la fente
+        ouverture: ApertureSpec::OuvertureNumeriqueObjet(0.05),
+        champs_deg: vec![(0.0, 0.0), (0.0, 2.0)],
+        surfaces: vec![collimateur, reseau, camera, detecteur],
+        catalogue: Default::default(),
+        distance_objet_mm: Some(200.0),
+        afocal: false,
     }
 }
 
@@ -110,6 +149,16 @@ mod tests {
         let p = calculer_paraxial(&miroir_seul());
         assert!((p.focale_effl_mm - 80.0).abs() < 1e-9, "EFFL = {}", p.focale_effl_mm);
         assert!((p.tirage_bfl_mm + 80.0).abs() < 1e-9, "BFL = {}", p.tirage_bfl_mm);
+    }
+
+    #[test]
+    fn spectrographe_d_exemple() {
+        let s = creer_spectrographe_reseau();
+        let r = crate::core::spectre::calculer_spectre(&s, (0.0, 0.0), 400.0, 700.0, 7, 20.0).unwrap();
+        // Fente de 20 µm imagée 1:1 (puis élargie par l'anamorphose du réseau)
+        assert!(r.image_fente_um.unwrap() > 19.9);
+        assert!(r.resolution[3].unwrap() > 500.0);
+        assert!(r.tache_rms_um.iter().flatten().all(|t| *t < 1e-3));
     }
 
     #[test]

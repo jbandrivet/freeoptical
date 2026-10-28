@@ -195,6 +195,44 @@ pub fn snell_descartes_3d(
     Some(refracte.normalize())
 }
 
+/// Lentille idéale (repère local, lentille dans le plan z = 0) : le rayon incident est prolongé
+/// jusqu'au plan objet paraxial `za` (compté dans le sens de la lumière, `None` = à l'infini) ;
+/// le point obtenu A est imagé sans aberration en A' (1/za' − 1/za = 1/f) et le rayon repart
+/// vers A'. Le chemin optique ajouté rend égaux tous les chemins de A à A' (stigmatisme exact).
+/// Retourne la direction de sortie (repère local) et le chemin optique à ajouter.
+pub fn lentille_ideale(f: f64, n: f64, p_local: &Point3, d: &Vec3, za: Option<f64>) -> (Vec3, f64) {
+    let s = if d.z >= 0.0 { 1.0 } else { -1.0 };
+    let p = Vec3::new(p_local.x, p_local.y, 0.0);
+    let g = |x: &Vec3| x.norm() - (x - p).norm();
+    // Source : point du rayon incident sur le plan objet, ou point à l'infini
+    let source = za.filter(|z| z.abs() < 1e12 && z.abs() > 1e-9).map(|za| (za, p + (s * za / d.z) * d));
+    let (terme_a, image) = match source {
+        Some((za, a)) => {
+            let terme = if za < 0.0 { g(&a) } else { -g(&a) };
+            let inverse = 1.0 / f + 1.0 / za;
+            let image = (inverse.abs() > 1e-15).then(|| {
+                let zb = 1.0 / inverse;
+                (zb, Vec3::new(a.x * zb / za, a.y * zb / za, s * zb))
+            });
+            (terme, image.ok_or_else(|| (-a).normalize() * if za < 0.0 { 1.0 } else { -1.0 }))
+        }
+        None => {
+            let (tx, ty) = (d.x / d.z.abs(), d.y / d.z.abs());
+            (-d.dot(&p), Ok((f, Vec3::new(f * tx, f * ty, s * f))))
+        }
+    };
+    let (direction, terme_b) = match image {
+        Ok((zb, b)) => {
+            let v = b - p;
+            let dir = if zb > 0.0 { v.normalize() } else { -v.normalize() };
+            (dir, if zb > 0.0 { g(&b) } else { -g(&b) })
+        }
+        // Image à l'infini : faisceau parallèle à la droite A → centre de la lentille
+        Err(e) => (e, e.dot(&p)),
+    };
+    (direction, n.abs() * (terme_a + terme_b))
+}
+
 /// Équation vectorielle des réseaux : la composante tangentielle de `n·d` augmente de
 /// `k = m λ N` (ordre × longueur d'onde en mm × traits par mm) selon la direction `g` des
 /// sillons croisés (perpendiculaire aux traits), la composante normale assure |d'| = 1.
@@ -236,6 +274,12 @@ pub fn tracer_rayon_unique(
     let mut n_courant = 1.0; // Milieu objet initial = Air (n = 1.0)
 
     let nb_surfaces = systeme.surfaces.len();
+    // Conjugués paraxiaux des lentilles idéales (calculés seulement s'il y en a)
+    let objets_ideaux = systeme
+        .surfaces
+        .iter()
+        .any(|s| s.type_surface == SurfaceType::Ideale)
+        .then(|| crate::core::paraxial::objets_lentilles_ideales(systeme));
 
     for (idx, (surface, &z_sommet)) in systeme.surfaces.iter().zip(positions_z.iter()).enumerate() {
         // Repère local de la surface : sommet décentré, axes inclinés
@@ -283,7 +327,13 @@ pub fn tracer_rayon_unique(
             // Sur le plan image, le rayon s'arrête sans nouvelle réfraction
             courant.direction
         } else {
-            let sortie = if surface.reseau_traits_mm != 0.0 && surface.reseau_ordre != 0 {
+            let sortie = if surface.type_surface == SurfaceType::Ideale && surface.focale_ideale_mm != 0.0 {
+                let za = objets_ideaux.as_ref().and_then(|o| o[idx]);
+                let (d_sortie, chemin) =
+                    lentille_ideale(surface.focale_ideale_mm, n_courant, &p_local, &(inverse * courant.direction), za);
+                courant.chemin_optique += chemin;
+                Some(rotation * d_sortie)
+            } else if surface.reseau_traits_mm != 0.0 && surface.reseau_ordre != 0 {
                 diffraction_reseau_3d(
                     &courant.direction,
                     &normale,
@@ -350,10 +400,31 @@ pub fn tracer_rayon_unique(
     }
 }
 
+/// Coordonnées d'un impact sur le plan image : position dans le repère local du plan (mm) ;
+/// en espace image afocal, angle de sortie exprimé sur le plan focal d'une lentille idéale de
+/// 1000 mm (1 mm = 1 mrad, 1 µm = 1 µrad)
+pub fn coordonnees_image(systeme: &OpticalSystem, impact: &SurfaceHit) -> (f64, f64) {
+    if systeme.afocal {
+        let inverse = systeme.surfaces.last().map(|s| s.rotation().inverse()).unwrap_or_default();
+        let d = inverse * impact.direction_sortante;
+        if d.z.abs() < 1e-12 {
+            return (f64::NAN, f64::NAN);
+        }
+        (1000.0 * d.x / d.z.abs(), 1000.0 * d.y / d.z.abs())
+    } else {
+        (impact.point_local.x, impact.point_local.y)
+    }
+}
+
 /// Retourne le demi-diamètre effectif de la pupille d'entrée (en mm)
 pub fn rayon_pupille_entree(systeme: &OpticalSystem) -> f64 {
     let r_spec = match systeme.ouverture {
         ApertureSpec::PupilleEntreeMm(epd) => epd * 0.5,
+        // Objet à distance finie : cône d'ouverture numérique NA issu du point objet axial
+        ApertureSpec::OuvertureNumeriqueObjet(na) if systeme.objet_fini().is_some() => {
+            let d = systeme.objet_fini().unwrap_or(0.0) + position_pupille_entree(systeme);
+            d.abs() * na.clamp(0.0, 0.999).asin().tan()
+        }
         // Objet à l'infini : l'ouverture numérique est rapportée à l'espace image (F/# = 1 / 2NA)
         ApertureSpec::OuvertureNumeriqueObjet(na) => focale_paraxiale(systeme).abs() * na,
         ApertureSpec::NombreOuverture(fnum) => {
@@ -381,6 +452,8 @@ pub struct VisePupille {
     pub rayon_mm: f64,
     pub z_pupille_mm: f64,
     pub z_depart_mm: f64,
+    /// Distance de l'objet à la première surface quand il est à distance finie
+    pub distance_objet_mm: Option<f64>,
 }
 
 impl VisePupille {
@@ -394,13 +467,21 @@ impl VisePupille {
             rayon_mm: rayon_pupille_entree(systeme),
             z_pupille_mm: position_pupille_entree(systeme),
             z_depart_mm: fleche_bord.min(0.0) - 15.0,
+            distance_objet_mm: systeme.objet_fini(),
         }
     }
 
-    /// Construit un rayon visant le point `(px, py)` (normalisé dans `[-1, 1]`) de la pupille d'entrée
+    /// Construit un rayon visant le point `(px, py)` (normalisé dans `[-1, 1]`) de la pupille
+    /// d'entrée, depuis un champ en degrés (objet à l'infini) ou depuis le point objet de hauteur
+    /// `(hx, hy)` en mm (objet à distance finie)
     pub fn rayon(&self, px: f64, py: f64, hx_deg: f64, hy_deg: f64, longueur_onde_nm: f64) -> Ray {
         let x_pup = px * self.rayon_mm;
         let y_pup = py * self.rayon_mm;
+        if let Some(d) = self.distance_objet_mm {
+            let objet = Point3::new(hx_deg, hy_deg, -d);
+            let cible = Point3::new(x_pup, y_pup, self.z_pupille_mm);
+            return Ray::nouveau(objet, cible - objet, longueur_onde_nm);
+        }
 
         let tx = hx_deg.to_radians().tan();
         let ty = hy_deg.to_radians().tan();

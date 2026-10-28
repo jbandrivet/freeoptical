@@ -154,6 +154,7 @@ fn dessiner_zone_inferieure(f: &mut Frame, zone: Rect, app: &AppState) {
         ActiveView::CourbesRayons => ondes_view::dessiner_courbes_rayons(f, interieur, app),
         ActiveView::CourbureChamp => ondes_view::dessiner_courbure_champ(f, interieur, app),
         ActiveView::Seidel => ondes_view::dessiner_seidel(f, interieur, app),
+        ActiveView::Spectre => ondes_view::dessiner_spectre(f, interieur, app),
     }
 }
 

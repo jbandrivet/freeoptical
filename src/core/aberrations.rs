@@ -27,8 +27,8 @@ pub struct CourbesRayons {
 
 /// Point d'impact dans le repère local du plan image
 fn impact_image(sys: &OpticalSystem, hit: &SurfaceHit) -> Vec3 {
-    let _ = sys;
-    hit.point_local.coords
+    let (x, y) = crate::core::raytracer::coordonnees_image(sys, hit);
+    Vec3::new(x, y, 0.0)
 }
 
 pub fn calculer_courbes_rayons(sys: &OpticalSystem, champ: (f64, f64), nb: usize) -> Result<CourbesRayons, String> {
@@ -122,15 +122,21 @@ pub fn calculer_courbure_distorsion(sys: &OpticalSystem, lambda_nm: f64, nb: usi
         if (b1 - b2).abs() < 1e-15 {
             return None;
         }
-        let z = -(a1 - a2) / (b1 - b2);
-        Some(z * d1.z.signum())
+        let z = -(a1 - a2) / (b1 - b2) * d1.z.signum();
+        // En afocal : vergence en dioptries (inverse de la distance du foyer, en m)
+        if sys.afocal {
+            return (z.abs() > 1e-9).then(|| 1000.0 / z);
+        }
+        Some(z)
     };
     let hauteur = |theta: f64| -> Option<f64> {
         let tr = tracer_rayon_unique(sys, vise.rayon(0.0, 0.0, 0.0, theta, lambda_nm), (0.0, theta), (0.0, 0.0));
-        tr.impact_plan_image().map(|h| h.point_local.y)
+        tr.impact_plan_image().map(|h| impact_image(sys, h).y)
     };
+    // Grandeur paraxiale du champ : angle (tangente) pour un objet à l'infini, hauteur sinon
+    let mesure = |theta: f64| if sys.objet_fini().is_some() { theta } else { theta.to_radians().tan() };
     let delta = theta_max * 1e-4;
-    let pente = hauteur(delta).map(|h| h / delta.to_radians().tan());
+    let pente = hauteur(delta).map(|h| h / mesure(delta));
     let mut res = CourbureDistorsion {
         longueur_onde_nm: lambda_nm,
         angles_deg: Vec::new(),
@@ -148,7 +154,7 @@ pub fn calculer_courbure_distorsion(sys: &OpticalSystem, lambda_nm: f64, nb: usi
         res.hauteur_mm.push(h);
         res.distorsion_pct.push(match (h, pente) {
             (Some(h), Some(p)) if k > 0 => {
-                let h_par = p * theta.to_radians().tan();
+                let h_par = p * mesure(theta);
                 (h_par.abs() > 1e-12).then(|| 100.0 * (h - h_par) / h_par)
             }
             _ => Some(0.0).filter(|_| k == 0),
@@ -192,21 +198,41 @@ pub struct Seidel {
 /// terme A4 des asphères ; les bascules et les réseaux sont ignorés)
 pub fn calculer_seidel(sys: &OpticalSystem) -> Result<Seidel, String> {
     let p = calculer_paraxial(sys);
-    if !p.focale_effl_mm.is_finite() {
+    if !p.focale_effl_mm.is_finite() && !sys.afocal {
         return Err(tr!("système afocal", "afocal system", "afokales System").to_string());
     }
     let lambda = sys.longueur_onde_ref_nm;
     let theta = champ_maximal_deg(sys);
     let nb = sys.surfaces.len().saturating_sub(1);
-    let (mut y, mut u) = (0.5 * p.diametre_pupille_entree_mm, 0.0);
-    let ub0 = theta.to_radians().tan();
-    let (mut yb, mut ub) = (-ub0 * position_pupille_entree(sys), ub0);
+    let r_pupille = 0.5 * p.diametre_pupille_entree_mm;
+    let z_ep = position_pupille_entree(sys);
+    let (mut y, mut u, mut yb, mut ub) = match sys.objet_fini() {
+        // Objet à distance finie : marginal issu du point axial, principal du bord du champ (mm)
+        Some(d) => {
+            let u0 = r_pupille / (z_ep + d);
+            let ub0 = -theta / (z_ep + d);
+            (u0 * d, u0, theta + ub0 * d, ub0)
+        }
+        None => {
+            let ub0 = theta.to_radians().tan();
+            (r_pupille, 0.0, -ub0 * z_ep, ub0)
+        }
+    };
     let mut n = 1.0_f64;
     let mut dn = 0.0_f64; // nF - nC du milieu courant (signé comme n)
     let mut signe = 1.0;
     let h = n * (ub * y - u * yb);
     let mut lignes = Vec::new();
     for (i, surf) in sys.surfaces.iter().take(nb).enumerate() {
+        if surf.type_surface == SurfaceType::Ideale && surf.focale_ideale_mm != 0.0 {
+            // Lentille idéale : aucune aberration, seulement la déviation paraxiale
+            u = (n * u - y * n.abs() / surf.focale_ideale_mm) / n;
+            ub = (n * ub - yb * n.abs() / surf.focale_ideale_mm) / n;
+            lignes.push(LigneSeidel { surface: i + 1, ..Default::default() });
+            y += surf.epaisseur * u;
+            yb += surf.epaisseur * ub;
+            continue;
+        }
         let mat = sys.catalogue.resoudre(&surf.verre);
         let (n2, dn2) = if mat.est_miroir() {
             signe = -signe;
@@ -300,6 +326,8 @@ mod tests {
             champs_deg: vec![(0.0, 0.0), (0.0, champ)],
             surfaces: vec![m, Surface::plan_image(40.0)],
             catalogue: Default::default(),
+            distance_objet_mm: None,
+            afocal: false,
         }
     }
 

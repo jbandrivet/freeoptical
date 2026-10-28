@@ -75,6 +75,8 @@ pub struct SurfacePatchParams {
     pub reseau_traits_mm: Option<f64>,
     /// Ordre de diffraction du réseau
     pub reseau_ordre: Option<i32>,
+    /// Focale d'une lentille idéale (type `"IDEALE"`), en mm
+    pub focale_ideale_mm: Option<f64>,
 }
 
 /// Paramètres de l'outil MCP `modifier_surface(index, parametres)`
@@ -100,6 +102,44 @@ pub struct OptimiserSystemeParams {
 pub struct ImporterTeloptikParams {
     /// Chemin absolu d'un fichier `.TDS` (TDESIGN), `.RLD` (LENSDES) ou `.DES` (RAYTRACE)
     pub chemin: String,
+}
+
+/// Paramètres de l'outil MCP `definir_systeme`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct DefinirSystemeParams {
+    /// Distance de l'objet à la première surface (mm) ; 0 ou absente avec `objet_infini` : objet à
+    /// l'infini. Avec un objet à distance finie, les champs sont des hauteurs d'objet en mm
+    pub distance_objet_mm: Option<f64>,
+    /// Vrai pour remettre l'objet à l'infini (champs en degrés)
+    pub objet_infini: Option<bool>,
+    /// Espace image afocal (oculaire, jumelles, élargisseur de faisceau) : analyses en angles
+    pub afocal: Option<bool>,
+    /// Type d'ouverture : `"pupille_entree_mm"`, `"nombre_ouverture"` ou `"ouverture_numerique_objet"`
+    pub ouverture_type: Option<String>,
+    /// Valeur de l'ouverture
+    pub ouverture_valeur: Option<f64>,
+    /// Champs [x, y] : degrés (objet à l'infini) ou mm (objet à distance finie)
+    pub champs: Option<Vec<[f64; 2]>>,
+    /// Longueurs d'onde en nm
+    pub longueurs_onde_nm: Option<Vec<f64>>,
+    /// Poids des longueurs d'onde (1 par défaut)
+    pub poids: Option<Vec<f64>>,
+    /// Longueur d'onde de référence en nm
+    pub longueur_onde_ref_nm: Option<f64>,
+}
+
+/// Paramètres de l'outil MCP `analyser_spectre`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct AnalyserSpectreParams {
+    /// Index du champ (0 par défaut)
+    pub champ_index: Option<usize>,
+    /// Domaine de longueurs d'onde (nm), par défaut celui du système
+    pub lambda_min_nm: Option<f64>,
+    pub lambda_max_nm: Option<f64>,
+    /// Nombre de longueurs d'onde calculées (21 par défaut)
+    pub nb: Option<usize>,
+    /// Largeur de fente : µm (objet à distance finie) ou secondes d'arc (objet à l'infini)
+    pub largeur_fente: Option<f64>,
 }
 
 /// Paramètres de l'outil MCP `importer_catalogue_agf(chemin)`
@@ -159,7 +199,17 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 11] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 13] = [
+    (
+        "definir_systeme",
+        "Sets the system parameters: object at infinity (fields in degrees) or at a finite distance (fields as object heights in mm), afocal image space, aperture (entrance pupil, F-number or object NA), fields and wavelengths with weights and reference.",
+        "Legt die Systemparameter fest: Objekt im Unendlichen (Felder in Grad) oder in endlicher Entfernung (Felder als Objekthöhen in mm), afokaler Bildraum, Öffnung (Eintrittspupille, Blendenzahl oder objektseitige NA), Felder und Wellenlängen mit Gewichten und Referenz.",
+    ),
+    (
+        "analyser_spectre",
+        "Spectrograph analysis over a wavelength range: chief-ray position of each wavelength on the detector, inverse linear dispersion (nm/mm), spot per wavelength, slit image width and resolving power R = λ/Δλ.",
+        "Spektrographenanalyse über einen Wellenlängenbereich: Position jeder Wellenlänge auf dem Detektor (Hauptstrahl), reziproke Lineardispersion (nm/mm), Spot je Wellenlänge, Spaltbildbreite und Auflösungsvermögen R = λ/Δλ.",
+    ),
     (
         "importer_catalogue_agf",
         "Imports a Zemax .agf glass catalogue (Schott, Ohara, CDGM…): its glasses become usable by name in every system and are kept for the next starts.",
@@ -375,6 +425,9 @@ impl FreeOpticalMcpServer {
         if let Some(v) = p.reseau_ordre {
             surf.reseau_ordre = v;
         }
+        if let Some(v) = p.focale_ideale_mm {
+            surf.focale_ideale_mm = v;
+        }
         if let Some(stop) = p.est_diaphragme {
             surf.est_diaphragme = stop;
         }
@@ -414,6 +467,86 @@ impl FreeOpticalMcpServer {
                 });
                 serde_json::to_string_pretty(&reponse).unwrap_or_default()
             }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Paramètres du système : objet, afocal, ouverture, champs, longueurs d'onde.
+    #[tool(
+        name = "definir_systeme",
+        description = "Règle les paramètres du système : objet à l'infini (champs en degrés) ou à distance finie (champs en hauteurs d'objet, mm), espace image afocal, ouverture (pupille d'entrée, nombre d'ouverture ou ouverture numérique objet), champs et longueurs d'onde avec poids et référence."
+    )]
+    pub async fn definir_systeme(&self, Parameters(p): Parameters<DefinirSystemeParams>) -> String {
+        use crate::core::types::{ApertureSpec, Wavelength};
+        let mut sys = self.systeme.lock().unwrap();
+        if p.objet_infini == Some(true) {
+            sys.distance_objet_mm = None;
+        }
+        if let Some(d) = p.distance_objet_mm {
+            sys.distance_objet_mm = (d > 0.0 && d.is_finite()).then_some(d);
+        }
+        if let Some(a) = p.afocal {
+            sys.afocal = a;
+        }
+        if let Some(v) = p.ouverture_valeur {
+            let genre = p.ouverture_type.as_deref().unwrap_or(match sys.ouverture {
+                ApertureSpec::PupilleEntreeMm(_) => "pupille_entree_mm",
+                ApertureSpec::NombreOuverture(_) => "nombre_ouverture",
+                ApertureSpec::OuvertureNumeriqueObjet(_) => "ouverture_numerique_objet",
+            });
+            sys.ouverture = match genre {
+                "nombre_ouverture" => ApertureSpec::NombreOuverture(v),
+                "ouverture_numerique_objet" => ApertureSpec::OuvertureNumeriqueObjet(v.min(0.99)),
+                _ => ApertureSpec::PupilleEntreeMm(v),
+            };
+        }
+        if let Some(c) = p.champs {
+            sys.champs_deg = c.into_iter().map(|c| (c[0], c[1])).collect();
+        }
+        if let Some(l) = p.longueurs_onde_nm {
+            let poids = p.poids.unwrap_or_default();
+            sys.longueurs_onde = l
+                .iter()
+                .enumerate()
+                .map(|(i, &v)| Wavelength::new(v, poids.get(i).copied().unwrap_or(1.0), format!("{v:.1} nm")))
+                .collect();
+        }
+        if let Some(r) = p.longueur_onde_ref_nm {
+            sys.longueur_onde_ref_nm = r;
+        }
+        serde_json::json!({
+            "distance_objet_mm": sys.distance_objet_mm,
+            "afocal": sys.afocal,
+            "ouverture": sys.ouverture,
+            "champs": sys.champs_deg,
+            "unite_champs": sys.unite_champ(),
+            "longueurs_onde": sys.longueurs_onde,
+            "longueur_onde_ref_nm": sys.longueur_onde_ref_nm,
+            "paraxial": calculer_paraxial(&sys),
+        })
+        .to_string()
+    }
+
+    /// Analyse de spectrographe.
+    #[tool(
+        name = "analyser_spectre",
+        description = "Analyse de spectrographe sur un domaine de longueurs d'onde : position de chaque longueur d'onde sur le détecteur (rayon principal), dispersion linéaire inverse (nm/mm), tache par longueur d'onde, largeur de l'image de la fente et pouvoir de résolution R = λ/Δλ."
+    )]
+    pub async fn analyser_spectre(&self, Parameters(p): Parameters<AnalyserSpectreParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let champ = sys.champs_deg.get(p.champ_index.unwrap_or(0)).copied().unwrap_or((0.0, 0.0));
+        let cache = crate::core::onde::AnalysesOndes::default();
+        let (a, b) = cache.domaine_spectral(&sys);
+        let fente = p.largeur_fente.unwrap_or(if sys.objet_fini().is_some() { 20.0 } else { 2.0 });
+        match crate::core::spectre::calculer_spectre(
+            &sys,
+            champ,
+            p.lambda_min_nm.unwrap_or(a),
+            p.lambda_max_nm.unwrap_or(b),
+            p.nb.unwrap_or(21),
+            fente,
+        ) {
+            Ok(s) => serde_json::to_string(&s).unwrap_or_default(),
             Err(e) => serde_json::json!({ "erreur": e }).to_string(),
         }
     }
@@ -664,6 +797,24 @@ mod tests {
             }))
             .await;
         assert!(res_opt.contains("DLS terminé"));
+    }
+
+    #[tokio::test]
+    async fn test_outils_mcp_systeme_et_spectre() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let res = srv
+            .definir_systeme(Parameters(DefinirSystemeParams {
+                distance_objet_mm: Some(1000.0),
+                champs: Some(vec![[0.0, 0.0], [0.0, 10.0]]),
+                ..Default::default()
+            }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(json["unite_champs"], "mm");
+        assert!(json["paraxial"]["grandissement"].as_f64().unwrap() < 0.0);
+        let res = srv.analyser_spectre(Parameters(AnalyserSpectreParams::default())).await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(json["longueurs_onde_nm"].as_array().unwrap().len(), 21, "{res}");
     }
 
     #[tokio::test]

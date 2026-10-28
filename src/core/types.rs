@@ -67,6 +67,9 @@ pub enum SurfaceType {
     Conique,
     /// Surface asphérique paire (rayon R, conique k, termes polynomiaux A4, A6, A8, A10)
     Aspherique,
+    /// Lentille idéale (paraxiale) de focale donnée, sans aberration : plan qui fait converger
+    /// tout faisceau parallèle en un point de son plan focal
+    Ideale,
 }
 
 impl SurfaceType {
@@ -76,6 +79,7 @@ impl SurfaceType {
             SurfaceType::Spherique => tr!("SPHERIQUE", "SPHERICAL", "SPHÄRISCH"),
             SurfaceType::Conique => tr!("CONIQUE", "CONIC", "KONISCH"),
             SurfaceType::Aspherique => tr!("ASPHERIQUE", "ASPHERIC", "ASPHÄRISCH"),
+            SurfaceType::Ideale => tr!("IDEALE", "IDEAL", "IDEAL"),
         }
     }
 
@@ -83,6 +87,7 @@ impl SurfaceType {
         match s.trim().to_uppercase().as_str() {
             "PLANE" | "PLAN" | "FLAT" => SurfaceType::Plane,
             "CONIQUE" | "CONIC" | "KONISCH" => SurfaceType::Conique,
+            "IDEALE" | "IDEAL" | "PARAXIAL" | "PARAXIALE" => SurfaceType::Ideale,
             "ASPHERIQUE" | "ASPHERIC" | "EVEN_ASPHERE" | "ASPHÄRISCH" | "ASPHAERISCH" => {
                 SurfaceType::Aspherique
             }
@@ -179,6 +184,9 @@ pub struct Surface {
     /// Ordre de diffraction utilisé
     #[serde(default, skip_serializing_if = "est_nul_i")]
     pub reseau_ordre: i32,
+    /// Focale d'une lentille idéale (type `Ideale`), en mm
+    #[serde(default, skip_serializing_if = "est_nul")]
+    pub focale_ideale_mm: f64,
 }
 
 fn est_nul(v: &f64) -> bool {
@@ -200,7 +208,7 @@ impl Surface {
         verre: impl Into<String>,
         semi_diametre: f64,
     ) -> Self {
-        let rayon_effectif = if type_surface == SurfaceType::Plane || rayon.abs() < 1e-9 {
+        let rayon_effectif = if matches!(type_surface, SurfaceType::Plane | SurfaceType::Ideale) || rayon.abs() < 1e-9 {
             f64::INFINITY
         } else {
             rayon
@@ -220,6 +228,7 @@ impl Surface {
             rayon_obstruction: 0.0,
             reseau_traits_mm: 0.0,
             reseau_ordre: 0,
+            focale_ideale_mm: 0.0,
         }
     }
 
@@ -254,7 +263,10 @@ impl Surface {
 
     /// Retourne la courbure axiale c = 1 / R (en mm⁻¹), 0.0 si la surface est plane
     pub fn courbure(&self) -> f64 {
-        if self.type_surface == SurfaceType::Plane || !self.rayon.is_finite() || self.rayon.abs() < 1e-9 {
+        if matches!(self.type_surface, SurfaceType::Plane | SurfaceType::Ideale)
+            || !self.rayon.is_finite()
+            || self.rayon.abs() < 1e-9
+        {
             0.0
         } else {
             1.0 / self.rayon
@@ -398,6 +410,14 @@ pub struct OpticalSystem {
     pub champs_deg: Vec<(f64, f64)>,
     /// Séquence ordonnée des surfaces optiques (de l'entrée jusqu'au plan image)
     pub surfaces: Vec<Surface>,
+    /// Distance de l'objet à la première surface (mm) ; absente : objet à l'infini. Quand elle
+    /// est donnée, les champs sont des hauteurs d'objet en mm (et non des angles)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub distance_objet_mm: Option<f64>,
+    /// Espace image afocal (oculaire, lunette de visée, jumelles, élargisseur de faisceau) :
+    /// analyses en angles (µrad) et front d'onde rapporté à une onde plane
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub afocal: bool,
     /// Catalogue de matériaux optiques (les verres standards restent toujours disponibles)
     #[serde(default)]
     pub catalogue: GlassCatalog,
@@ -426,6 +446,8 @@ impl OpticalSystem {
             champs_deg: vec![(0.0, 0.0), (0.0, 3.0)],
             surfaces: vec![stop, image],
             catalogue: GlassCatalog::standard(),
+            distance_objet_mm: None,
+            afocal: false,
         }
     }
 
@@ -452,7 +474,19 @@ impl OpticalSystem {
             champs_deg: vec![(0.0, 0.0), (0.0, 2.5)],
             surfaces: vec![s1, s2, s3, s4],
             catalogue: GlassCatalog::standard(),
+            distance_objet_mm: None,
+            afocal: false,
         }
+    }
+
+    /// Distance d'objet finie (mm), `None` pour un objet à l'infini
+    pub fn objet_fini(&self) -> Option<f64> {
+        self.distance_objet_mm.filter(|d| d.is_finite() && *d > 0.0)
+    }
+
+    /// Unité des champs : « mm » (hauteur d'objet) ou « ° » (angle)
+    pub fn unite_champ(&self) -> &'static str {
+        if self.objet_fini().is_some() { "mm" } else { "°" }
     }
 
     /// Sens de propagation dans l'espace image : +1 vers +Z, -1 après un nombre impair de miroirs

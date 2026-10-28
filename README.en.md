@@ -84,6 +84,12 @@ The built-in glasses (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16
 - A central obstruction stops the rays passing closer than its radius to the surface axis; spot, wavefront, PSF and MTF take it into account (the reference chief ray is traced without obstruction).
 - Diffraction grating: vector grating equation, lines parallel to the local X axis of the surface, a positive order deviates light towards local +Y; in reflection on a mirror, in transmission otherwise.
 
+#### Near objects, afocal systems and spectrographs
+- **System settings** (`Edit` menu): object at infinity (fields in degrees) or at a finite distance (fields as object heights in mm: microscopes, relays, projectors, spectrograph slit), aperture (entrance pupil, F/# or object NA), fields and wavelengths with weights and reference. The paraxial back focus becomes the image distance and the summary shows the magnification.
+- **Afocal image space** (eyepieces, sighting telescopes, binoculars, beam expanders): spot and PSF in µrad, MTF in cycles/mrad, wavefront referred to a plane wave, field curvature in dioptres, angular magnification.
+- **Ideal lens** (`IDEAL` type, adjustable focal length): perfect lens for all conjugates, to simulate an ideal collimator or camera, or to look at the image of an afocal system.
+- **Spectrograph** (view **F12**): position of each wavelength on the detector, inverse linear dispersion (nm/mm), spot per wavelength, slit image and resolving power R = λ/Δλ, for a slit width in µm (near object) or arcseconds (object at infinity); the spot diagram can centre each wavelength on its own centroid. Example: `File` → `Load a grating spectrograph`.
+
 #### Wave analyses: wavefront, PSF and MTF
 Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field and wavelength (or to all weighted wavelengths).
 - **Wavefront**: optical path difference referred to the reference sphere centred on the chief-ray image and passing through the paraxial exit pupil (Zemax convention), positive when the ray's optical path is longer; peak-to-valley, RMS, Maréchal Strehl and 37 Zernike coefficients (Noll normalization and ordering).
@@ -124,6 +130,8 @@ freeoptical --mcp
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangential and sagittal MTF, diffraction limit and PSF Strehl.
 - `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel coefficients per surface, field curvature and distortion, ray fans.
 - `importer_catalogue_agf(chemin)`: imports a Zemax `.agf` glass catalogue.
+- `definir_systeme(...)`: object (infinity or distance), afocal, aperture, fields, wavelengths.
+- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: positions, dispersion, spot, slit image and resolution of a spectrograph.
 - `modifier_surface` also accepts `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` and `reseau_ordre`; `optimiser_systeme` accepts the variables `a4` to `a10` and the targets `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---

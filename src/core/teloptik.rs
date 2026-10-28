@@ -305,7 +305,7 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         let est_miroir = n_apres.signum() != indice_avant.signum();
         if est_miroir && (n_apres.abs() - indice_avant.abs()).abs() > 1e-6 {
             avertissements.push(trf!(
-                "Surface {} : l'indice change de valeur au moment de la réflexion ({} → {}) ; la réflexion est conservée dans le milieu incident.", "Surface {}: the index changes value at the reflection ({} → {}); the reflection is kept in the incident medium.", "Fläche {}: der Index ändert sich bei der Reflexion ({} → {}); die Reflexion bleibt im einfallenden Medium.",
+                "Surface {} : l'indice change de valeur au moment de la réflexion ({} -> {}) ; la réflexion est conservée dans le milieu incident.", "Surface {}: the index changes value at the reflection ({} -> {}); the reflection is kept in the incident medium.", "Fläche {}: der Index ändert sich bei der Reflexion ({} -> {}); die Reflexion bleibt im einfallenden Medium.",
                 i + 1,
                 indice_avant,
                 n_apres
@@ -444,6 +444,8 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         champs_deg: vec![(0.0, 0.0), (0.0, 0.5)],
         surfaces,
         catalogue,
+        distance_objet_mm: None,
+        afocal: false,
     };
 
     // Plan image au foyer paraxial

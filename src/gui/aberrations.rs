@@ -16,15 +16,15 @@ fn couleur_lambda(l: f64) -> Color32 {
 }
 
 /// Une courbe : points (x, y), couleur, en tirets ou non
-struct Courbe {
-    points: Vec<(f64, f64)>,
-    couleur: Color32,
-    tirets: bool,
+pub(super) struct Courbe {
+    pub(super) points: Vec<(f64, f64)>,
+    pub(super) couleur: Color32,
+    pub(super) tirets: bool,
 }
 
 /// Graphe à axes : `x` de `x_min` à `x_max`, `y` de `y_min` à `y_max`, avec titre et unités
 #[allow(clippy::too_many_arguments)]
-fn graphe(
+pub(super) fn graphe(
     ui: &mut egui::Ui,
     taille: Vec2,
     titre: &str,
@@ -74,7 +74,7 @@ fn graphe(
 }
 
 /// Échelle symétrique arrondie couvrant toutes les valeurs
-fn echelle(valeurs: impl Iterator<Item = f64>, minimum: f64) -> f64 {
+pub(super) fn echelle(valeurs: impl Iterator<Item = f64>, minimum: f64) -> f64 {
     let m = valeurs.fold(0.0_f64, |a, v| a.max(v.abs())).max(minimum) * 1.1;
     let p = 10f64.powf(m.log10().floor());
     (m / p).ceil() * p
@@ -96,7 +96,7 @@ impl FreeOpticalGuiApp {
                 "Champ {} — aberrations transverses par rapport au rayon principal ({:.1} nm) et différence de marche, par longueur d'onde",
                 "Field {} — transverse aberrations relative to the chief ray ({:.1} nm) and optical path difference, per wavelength",
                 "Feld {} — Queraberrationen bezogen auf den Hauptstrahl ({:.1} nm) und optische Wegdifferenz, je Wellenlänge",
-                libelle_champ(c.champ_deg),
+                libelle_champ(self.systeme.unite_champ(), c.champ_deg),
                 self.systeme.longueur_onde_ref_nm
             ))
             .monospace()

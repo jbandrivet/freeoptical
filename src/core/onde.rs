@@ -137,11 +137,11 @@ fn sans_obstruction(sys: &OpticalSystem) -> std::borrow::Cow<'_, OpticalSystem> 
 fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String> {
     let sys_libre = sans_obstruction(sys);
     let p = calculer_paraxial(sys);
-    if !p.focale_effl_mm.is_finite() {
+    if !p.focale_effl_mm.is_finite() && !sys.afocal {
         return Err(tr!(
-            "système afocal : pas d'image à analyser",
-            "afocal system: no image to analyse",
-            "afokales System: kein Bild zu analysieren"
+            "système afocal : cochez « Espace image afocal » dans les paramètres du système",
+            "afocal system: tick \"Afocal image space\" in the system settings",
+            "afokales System: „Afokaler Bildraum“ in den Systemeinstellungen ankreuzen"
         )
         .to_string());
     }
@@ -162,7 +162,9 @@ fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String
     let nb = sys.surfaces.len();
     let z = sys.positions_z_sommets();
     let mut rayon = None;
-    if sys.surfaces.iter().any(|s| s.est_hors_axe()) {
+    if sys.afocal {
+        // Espace image afocal : front d'onde rapporté à une onde plane (sphère de rayon infini)
+    } else if sys.surfaces.iter().any(|s| s.est_hors_axe()) {
         // Système replié ou décentré : distance de la pupille de sortie à l'image mesurée le long
         // du rayon principal, depuis son impact sur la dernière surface optique
         let n_imp = chef.impacts.len();
@@ -184,6 +186,10 @@ fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String
         }
     }
     let f_travail = match rayon {
+        // Afocal : échelle d'une lentille idéale de 1000 mm placée en sortie (1 mm = 1 mrad)
+        _ if sys.afocal && p.diametre_pupille_sortie_mm.is_finite() && p.diametre_pupille_sortie_mm > 1e-9 => {
+            1000.0 / p.diametre_pupille_sortie_mm
+        }
         Some(r) if p.diametre_pupille_sortie_mm.is_finite() && p.diametre_pupille_sortie_mm > 1e-9 => {
             r / p.diametre_pupille_sortie_mm
         }
@@ -611,6 +617,12 @@ pub struct AnalysesOndes {
     courbes: Option<Result<crate::core::aberrations::CourbesRayons, String>>,
     courbure: Option<Result<crate::core::aberrations::CourbureDistorsion, String>>,
     seidel: Option<Result<crate::core::aberrations::Seidel, String>>,
+    spectre: Option<Result<crate::core::spectre::Spectre, String>>,
+    /// Domaine de longueurs d'onde de l'analyse spectrale (nm) ; 0 = d'après le système
+    pub spectre_min_nm: f64,
+    pub spectre_max_nm: f64,
+    /// Largeur de fente : µm (objet à distance finie) ou secondes d'arc (objet à l'infini)
+    pub largeur_fente: f64,
     /// Incrémenté à chaque nouveau calcul (pour rafraîchir les images affichées)
     pub generation: u64,
 }
@@ -623,6 +635,7 @@ impl AnalysesOndes {
         self.courbes = None;
         self.courbure = None;
         self.seidel = None;
+        self.spectre = None;
         self.generation += 1;
     }
 
@@ -710,6 +723,29 @@ impl AnalysesOndes {
         self.seidel.get_or_insert_with(|| crate::core::aberrations::calculer_seidel(sys))
     }
 
+    /// Domaine spectral effectif : réglage de l'utilisateur, sinon longueurs d'onde du système
+    pub fn domaine_spectral(&self, sys: &OpticalSystem) -> (f64, f64) {
+        if self.spectre_max_nm > self.spectre_min_nm && self.spectre_min_nm > 0.0 {
+            return (self.spectre_min_nm, self.spectre_max_nm);
+        }
+        let l: Vec<f64> = sys.longueurs_onde.iter().map(|w| w.valeur_nm).collect();
+        let (a, b) = l.iter().fold((f64::INFINITY, 0.0_f64), |(a, b), &v| (a.min(v), b.max(v)));
+        if b > a { (a, b) } else { (sys.longueur_onde_ref_nm - 100.0, sys.longueur_onde_ref_nm + 100.0) }
+    }
+
+    pub fn spectre(&mut self, sys: &OpticalSystem) -> &Result<crate::core::spectre::Spectre, String> {
+        self.borner(sys);
+        let champ = self.champ_deg(sys);
+        let (a, b) = self.domaine_spectral(sys);
+        let fente = if self.largeur_fente > 0.0 { self.largeur_fente } else if sys.objet_fini().is_some() { 20.0 } else { 2.0 };
+        self.spectre
+            .get_or_insert_with(|| crate::core::spectre::calculer_spectre(sys, champ, a, b, 41, fente))
+    }
+
+    pub fn spectre_calcule(&self) -> Option<&Result<crate::core::spectre::Spectre, String>> {
+        self.spectre.as_ref()
+    }
+
     pub fn courbes_calculees(&self) -> Option<&Result<crate::core::aberrations::CourbesRayons, String>> {
         self.courbes.as_ref()
     }
@@ -759,6 +795,8 @@ mod tests {
             champs_deg: vec![(0.0, 0.0), (0.0, 0.5)],
             surfaces: vec![m, Surface::plan_image(20.0)],
             catalogue: Default::default(),
+            distance_objet_mm: None,
+            afocal: false,
         }
     }
 
