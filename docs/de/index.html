@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeOptical — freie Software für Optikdesign (Zemax-Alternative) unter Linux</title>
+<meta name="description" content="FreeOptical ist freie, kostenlose Optikdesign-Software für Linux: Strahlverfolgung, Wellenfront und Zernike, PSF, MTF, Seidel-Aberrationen, Optimierung, Schott- und Ohara-Gläser (.agf), Teleskope, Refraktoren und Spektrographen. Auf Deutsch, Englisch und Französisch.">
+<meta name="keywords" content="FreeOptical, optical design, conception optique, Optikdesign, Zemax alternative, ray tracing, lancer de rayons, Zernike, MTF, FTM, PSF, Seidel, telescope, télescope, Teleskop, lens design, Linux, Rust">
+<link rel="canonical" href="https://jbandrivet.github.io/freeoptical/de/">
+<link rel="alternate" hreflang="fr" href="https://jbandrivet.github.io/freeoptical/">
+<link rel="alternate" hreflang="en" href="https://jbandrivet.github.io/freeoptical/en/">
+<link rel="alternate" hreflang="de" href="https://jbandrivet.github.io/freeoptical/de/">
+<link rel="alternate" hreflang="x-default" href="https://jbandrivet.github.io/freeoptical/en/">
+<link rel="icon" type="image/png" href="../favicon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FreeOptical — freie Software für Optikdesign (Zemax-Alternative) unter Linux">
+<meta property="og:description" content="FreeOptical ist freie, kostenlose Optikdesign-Software für Linux: Strahlverfolgung, Wellenfront und Zernike, PSF, MTF, Seidel-Aberrationen, Optimierung, Schott- und Ohara-Gläser (.agf), Teleskope, Refraktoren und Spektrographen. Auf Deutsch, Englisch und Französisch.">
+<meta property="og:url" content="https://jbandrivet.github.io/freeoptical/de/">
+<meta property="og:image" content="https://jbandrivet.github.io/freeoptical/img/de-front.jpg">
+<meta property="og:locale" content="de_DE">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "FreeOptical", "description": "FreeOptical ist freie, kostenlose Optikdesign-Software für Linux: Strahlverfolgung, Wellenfront und Zernike, PSF, MTF, Seidel-Aberrationen, Optimierung, Schott- und Ohara-Gläser (.agf), Teleskope, Refraktoren und Spektrographen. Auf Deutsch, Englisch und Französisch.", "url": "https://jbandrivet.github.io/freeoptical/de/", "inLanguage": ["fr", "en", "de"], "applicationCategory": "DesignApplication", "applicationSubCategory": "Optical design", "operatingSystem": "Linux", "softwareVersion": "0.6.0", "license": "https://opensource.org/licenses/MIT", "downloadUrl": "https://github.com/jbandrivet/freeoptical/releases/latest", "codeRepository": "https://github.com/jbandrivet/freeoptical", "screenshot": "https://jbandrivet.github.io/freeoptical/img/de-coupe.jpg", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "Jean-Baptiste Andrivet"}, "programmingLanguage": "Rust"}</script>
+<style>
+:root{--fond:#000a3c;--panneau:#00128f;--jaune:#ffff55;--cyan:#55ffff;--texte:#eef2ff;--gris:#c3cddc}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fond);color:var(--texte);line-height:1.55}
+a{color:var(--cyan)}header{padding:28px 20px 10px;text-align:center}
+header img{max-width:min(640px,92vw);height:auto;border-radius:8px}
+nav.langues{position:absolute;top:12px;right:16px;font-size:.95em}nav.langues a{margin-left:10px}
+h1{font-size:1.6em;color:var(--jaune);margin:18px auto 8px;max-width:900px}
+.sous{max-width:820px;margin:0 auto 18px;color:var(--gris);font-size:1.08em}
+.boutons a{display:inline-block;margin:6px 8px;padding:11px 20px;border-radius:6px;font-weight:600;text-decoration:none}
+.principal{background:var(--jaune);color:#000}.secondaire{border:1px solid var(--cyan);color:var(--cyan)}
+main{max-width:1100px;margin:0 auto;padding:0 18px 30px}h2{color:var(--jaune);border-bottom:1px solid #2a3a8a;padding-bottom:6px;margin-top:38px}
+.grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.carte{background:var(--panneau);border:1px solid #2a3a9a;border-radius:8px;padding:14px 16px}.carte h3{margin:0 0 6px;color:var(--cyan);font-size:1.05em}.carte p{margin:0;color:var(--texte)}
+figure{margin:0;background:#000;border:1px solid #2a3a9a;border-radius:8px;overflow:hidden}figure img{width:100%;height:auto;display:block}
+figcaption{padding:8px 12px;color:var(--gris);font-size:.93em;background:var(--panneau)}
+pre{background:#000;border:1px solid #2a3a9a;border-radius:6px;padding:12px;overflow-x:auto;color:var(--cyan)}
+footer{text-align:center;color:var(--gris);padding:24px;border-top:1px solid #2a3a8a;font-size:.93em}
+</style>
+</head>
+<body>
+<nav class="langues"><a href="../" hreflang="fr">FR</a> <a href="../en/" hreflang="en">EN</a> <a href="../de/" hreflang="de" aria-current=page>DE</a></nav>
+<header>
+<img src="../img/logo.jpg" alt="FreeOptical" width="900" height="502">
+<h1>Freie, kostenlose Software für Optikdesign und Simulation unter Linux</h1>
+<p class="sous">Objektive, Refraktoren, Teleskope und Spektrographen Fläche für Fläche entwerfen und analysieren, wie mit den großen kommerziellen Programmen, ohne Lizenz oder Abonnement.</p>
+<p class="boutons"><a class="principal" href="https://github.com/jbandrivet/freeoptical/releases/latest">Version herunterladen 0.6.0</a><a class="secondaire" href="https://github.com/jbandrivet/freeoptical">Quellcode auf GitHub</a></p>
+</header>
+<main>
+<h2>Funktionen</h2>
+<div class="grille">
+<div class="carte"><h3>Exakte Strahlverfolgung</h3><p>Sequentielle 3D-Strahlverfolgung: Sphären, Kegelschnitte, gerade Asphären, Spiegel, gekippte und dezentrierte Flächen (gefaltete Systeme), zentrale Obstruktionen, Beugungsgitter.</p></div>
+<div class="carte"><h3>Wellenoptik</h3><p>Optische Wegdifferenz (OPD), Wellenfrontkarte, 37 Zernike-Polynome, Strehl-Verhältnis, Beugungs-PSF und tangentiale und sagittale MTF.</p></div>
+<div class="carte"><h3>Aberrationen</h3><p>Spotdiagramm, Strahlfächer, longitudinale sphärische Aberration, Bildfeldwölbung, Verzeichnung und Seidel-Koeffizienten je Fläche.</p></div>
+<div class="carte"><h3>Echte Gläser</h3><p>Sellmeier-Formeln, eingebaute Schott-Gläser, Quarzglas und Flussspat; Import von Zemax-Katalogen .agf (Schott, Ohara, CDGM…).</p></div>
+<div class="carte"><h3>Optimierung</h3><p>Gedämpfte kleinste Quadrate (DLS) über alle Felder und Farben: Radien, Dicken, Kegelschnitte, Asphären, Brennweite und Nebenbedingungen.</p></div>
+<div class="carte"><h3>Offen und skriptfähig</h3><p>Grafische Oberfläche, Terminal-Oberfläche und MCP-Server zur Steuerung durch einen KI-Agenten. Import von TDESIGN-, LENSDES- und RAYTRACE-Dateien (Rutten und van Venrooij).</p></div>
+</div>
+<h2>Bildschirmfotos</h2>
+<div class="grille">
+<figure><a href="../img/de-coupe.jpg"><img src="../img/de-coupe.jpg" alt="2D-Schnitt eines Schmidt-Cassegrain 200 mm F/10" loading="lazy" width="1380" height="860"></a><figcaption>2D-Schnitt eines Schmidt-Cassegrain 200 mm F/10</figcaption></figure>
+<figure><a href="../img/de-front.jpg"><img src="../img/de-front.jpg" alt="Wellenfront und Zernike-Koeffizienten" loading="lazy" width="1380" height="860"></a><figcaption>Wellenfront und Zernike-Koeffizienten</figcaption></figure>
+<figure><a href="../img/de-ftm.jpg"><img src="../img/de-ftm.jpg" alt="Modulationsübertragungsfunktion (MTF)" loading="lazy" width="1380" height="860"></a><figcaption>Modulationsübertragungsfunktion (MTF)</figcaption></figure>
+<figure><a href="../img/de-rayons.jpg"><img src="../img/de-rayons.jpg" alt="Strahlfächer eines Achromaten" loading="lazy" width="1380" height="860"></a><figcaption>Strahlfächer eines Achromaten</figcaption></figure>
+</div>
+<h2>Installation</h2>
+<p>Debian, Ubuntu und Derivate (amd64): das <code>.deb</code>-Paket der neuesten Version herunterladen, dann:</p>
+<pre>sudo apt install ./freeoptical_0.6.0_amd64.deb</pre>
+<p>Spätere Versionen werden über die Schaltfläche <b>Update</b> des Programms installiert. Aus den Quellen: <code>cargo build --release</code>.</p>
+<h2>Für wen?</h2>
+<p>Amateurastronomen, die ihre Spiegel schleifen oder Instrumente entwerfen, Studierende und Lehrende der Optik, Ingenieure auf der Suche nach einer freien Alternative zu kommerzieller Optikdesign-Software wie Zemax OpticStudio, Code V oder OSLO.</p>
+<h2>Sprachen</h2>
+<p>Oberfläche auf Deutsch, Englisch und Französisch (Menü Sprache).</p>
+</main>
+<footer><p>Freie Software unter MIT- oder Apache-2.0-Lizenz. <a href="https://github.com/jbandrivet/freeoptical">github.com/jbandrivet/freeoptical</a></p><p>Beiträge, Ideen und Fehlermeldungen sind auf GitHub willkommen.</p></footer>
+</body>
+</html>

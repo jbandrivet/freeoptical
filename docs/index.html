@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeOptical — logiciel libre de conception optique (alternative à Zemax) pour Linux</title>
+<meta name="description" content="FreeOptical, logiciel libre et gratuit de conception optique pour Linux : lancer de rayons, front d&#x27;onde et Zernike, PSF, FTM, Seidel, optimisation, verres Schott et Ohara (.agf), télescopes, lunettes et spectrographes. En français, anglais et allemand.">
+<meta name="keywords" content="FreeOptical, optical design, conception optique, Optikdesign, Zemax alternative, ray tracing, lancer de rayons, Zernike, MTF, FTM, PSF, Seidel, telescope, télescope, Teleskop, lens design, Linux, Rust">
+<link rel="canonical" href="https://jbandrivet.github.io/freeoptical/">
+<link rel="alternate" hreflang="fr" href="https://jbandrivet.github.io/freeoptical/">
+<link rel="alternate" hreflang="en" href="https://jbandrivet.github.io/freeoptical/en/">
+<link rel="alternate" hreflang="de" href="https://jbandrivet.github.io/freeoptical/de/">
+<link rel="alternate" hreflang="x-default" href="https://jbandrivet.github.io/freeoptical/en/">
+<link rel="icon" type="image/png" href="favicon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FreeOptical — logiciel libre de conception optique (alternative à Zemax) pour Linux">
+<meta property="og:description" content="FreeOptical, logiciel libre et gratuit de conception optique pour Linux : lancer de rayons, front d&#x27;onde et Zernike, PSF, FTM, Seidel, optimisation, verres Schott et Ohara (.agf), télescopes, lunettes et spectrographes. En français, anglais et allemand.">
+<meta property="og:url" content="https://jbandrivet.github.io/freeoptical/">
+<meta property="og:image" content="https://jbandrivet.github.io/freeoptical/img/fr-front.jpg">
+<meta property="og:locale" content="fr_FR">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "FreeOptical", "description": "FreeOptical, logiciel libre et gratuit de conception optique pour Linux : lancer de rayons, front d'onde et Zernike, PSF, FTM, Seidel, optimisation, verres Schott et Ohara (.agf), télescopes, lunettes et spectrographes. En français, anglais et allemand.", "url": "https://jbandrivet.github.io/freeoptical/", "inLanguage": ["fr", "en", "de"], "applicationCategory": "DesignApplication", "applicationSubCategory": "Optical design", "operatingSystem": "Linux", "softwareVersion": "0.6.0", "license": "https://opensource.org/licenses/MIT", "downloadUrl": "https://github.com/jbandrivet/freeoptical/releases/latest", "codeRepository": "https://github.com/jbandrivet/freeoptical", "screenshot": "https://jbandrivet.github.io/freeoptical/img/fr-coupe.jpg", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "Jean-Baptiste Andrivet"}, "programmingLanguage": "Rust"}</script>
+<style>
+:root{--fond:#000a3c;--panneau:#00128f;--jaune:#ffff55;--cyan:#55ffff;--texte:#eef2ff;--gris:#c3cddc}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fond);color:var(--texte);line-height:1.55}
+a{color:var(--cyan)}header{padding:28px 20px 10px;text-align:center}
+header img{max-width:min(640px,92vw);height:auto;border-radius:8px}
+nav.langues{position:absolute;top:12px;right:16px;font-size:.95em}nav.langues a{margin-left:10px}
+h1{font-size:1.6em;color:var(--jaune);margin:18px auto 8px;max-width:900px}
+.sous{max-width:820px;margin:0 auto 18px;color:var(--gris);font-size:1.08em}
+.boutons a{display:inline-block;margin:6px 8px;padding:11px 20px;border-radius:6px;font-weight:600;text-decoration:none}
+.principal{background:var(--jaune);color:#000}.secondaire{border:1px solid var(--cyan);color:var(--cyan)}
+main{max-width:1100px;margin:0 auto;padding:0 18px 30px}h2{color:var(--jaune);border-bottom:1px solid #2a3a8a;padding-bottom:6px;margin-top:38px}
+.grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.carte{background:var(--panneau);border:1px solid #2a3a9a;border-radius:8px;padding:14px 16px}.carte h3{margin:0 0 6px;color:var(--cyan);font-size:1.05em}.carte p{margin:0;color:var(--texte)}
+figure{margin:0;background:#000;border:1px solid #2a3a9a;border-radius:8px;overflow:hidden}figure img{width:100%;height:auto;display:block}
+figcaption{padding:8px 12px;color:var(--gris);font-size:.93em;background:var(--panneau)}
+pre{background:#000;border:1px solid #2a3a9a;border-radius:6px;padding:12px;overflow-x:auto;color:var(--cyan)}
+footer{text-align:center;color:var(--gris);padding:24px;border-top:1px solid #2a3a8a;font-size:.93em}
+</style>
+</head>
+<body>
+<nav class="langues"><a href="" hreflang="fr" aria-current=page>FR</a> <a href="en/" hreflang="en">EN</a> <a href="de/" hreflang="de">DE</a></nav>
+<header>
+<img src="img/logo.jpg" alt="FreeOptical" width="900" height="502">
+<h1>Logiciel libre et gratuit de conception et de simulation optique pour Linux</h1>
+<p class="sous">Concevez et analysez objectifs, lunettes, télescopes et spectrographes surface par surface, comme avec les grands logiciels commerciaux, sans licence ni abonnement.</p>
+<p class="boutons"><a class="principal" href="https://github.com/jbandrivet/freeoptical/releases/latest">Télécharger la version 0.6.0</a><a class="secondaire" href="https://github.com/jbandrivet/freeoptical">Code source sur GitHub</a></p>
+</header>
+<main>
+<h2>Fonctions</h2>
+<div class="grille">
+<div class="carte"><h3>Lancer de rayons exact</h3><p>Tracé séquentiel en 3D : sphères, coniques, asphères paires, miroirs, surfaces basculées et décentrées (systèmes repliés), obstructions centrales, réseaux de diffraction.</p></div>
+<div class="carte"><h3>Analyses ondulatoires</h3><p>Différence de marche (OPD), carte de front d&#x27;onde, 37 polynômes de Zernike, rapport de Strehl, PSF de diffraction et FTM tangentielle et sagittale.</p></div>
+<div class="carte"><h3>Aberrations</h3><p>Spot diagram, courbes de rayons, aberration sphérique longitudinale, courbure de champ, distorsion et coefficients de Seidel surface par surface.</p></div>
+<div class="carte"><h3>Vrais verres</h3><p>Formules de Sellmeier, verres Schott intégrés, silice et fluorine ; import des catalogues Zemax .agf (Schott, Ohara, CDGM…).</p></div>
+<div class="carte"><h3>Optimisation</h3><p>Moindres carrés amortis (DLS) sur tous les champs et toutes les couleurs : rayons, épaisseurs, coniques, asphériques, focale et contraintes.</p></div>
+<div class="carte"><h3>Ouvert et scriptable</h3><p>Interface graphique, interface terminal et serveur MCP pour piloter les calculs par un agent IA. Import des fichiers TDESIGN, LENSDES et RAYTRACE (Rutten et van Venrooij).</p></div>
+</div>
+<h2>Captures d'écran</h2>
+<div class="grille">
+<figure><a href="img/fr-coupe.jpg"><img src="img/fr-coupe.jpg" alt="Coupe 2D d&#x27;un Schmidt-Cassegrain 200 mm F/10" loading="lazy" width="1380" height="860"></a><figcaption>Coupe 2D d&#x27;un Schmidt-Cassegrain 200 mm F/10</figcaption></figure>
+<figure><a href="img/fr-front.jpg"><img src="img/fr-front.jpg" alt="Front d&#x27;onde et coefficients de Zernike" loading="lazy" width="1380" height="860"></a><figcaption>Front d&#x27;onde et coefficients de Zernike</figcaption></figure>
+<figure><a href="img/fr-ftm.jpg"><img src="img/fr-ftm.jpg" alt="Fonction de transfert de modulation (FTM)" loading="lazy" width="1380" height="860"></a><figcaption>Fonction de transfert de modulation (FTM)</figcaption></figure>
+<figure><a href="img/fr-rayons.jpg"><img src="img/fr-rayons.jpg" alt="Courbes de rayons d&#x27;un doublet achromatique" loading="lazy" width="1380" height="860"></a><figcaption>Courbes de rayons d&#x27;un doublet achromatique</figcaption></figure>
+<figure><a href="img/fr-psf.jpg"><img src="img/fr-psf.jpg" alt="Tache de diffraction (PSF) en échelle logarithmique" loading="lazy" width="1380" height="860"></a><figcaption>Tache de diffraction (PSF) en échelle logarithmique</figcaption></figure>
+<figure><a href="img/fr-seidel.jpg"><img src="img/fr-seidel.jpg" alt="Coefficients de Seidel par surface" loading="lazy" width="1380" height="860"></a><figcaption>Coefficients de Seidel par surface</figcaption></figure>
+</div>
+<h2>Installation</h2>
+<p>Debian, Ubuntu et dérivées (amd64) : téléchargez le paquet <code>.deb</code> de la dernière version, puis :</p>
+<pre>sudo apt install ./freeoptical_0.6.0_amd64.deb</pre>
+<p>Les versions suivantes s'installent depuis le bouton <b>Mise à jour</b> du logiciel. Depuis les sources : <code>cargo build --release</code>.</p>
+<h2>Pour qui ?</h2>
+<p>Astronomes amateurs qui taillent leurs miroirs ou conçoivent leurs instruments, étudiants et enseignants en optique, ingénieurs qui cherchent une alternative libre aux logiciels commerciaux de conception optique comme Zemax OpticStudio, Code V ou OSLO.</p>
+<h2>Langues</h2>
+<p>Interface en français, anglais et allemand, au choix (menu Langue).</p>
+</main>
+<footer><p>Logiciel libre sous licence MIT ou Apache 2.0. <a href="https://github.com/jbandrivet/freeoptical">github.com/jbandrivet/freeoptical</a></p><p>Contributions, idées et signalements de bugs bienvenus sur GitHub.</p></footer>
+</body>
+</html>

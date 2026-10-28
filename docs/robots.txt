@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://jbandrivet.github.io/freeoptical/sitemap.xml

@@ -4,7 +4,7 @@
 
 # FreeOptical
 
-[Français](README.md) · **English** · [Deutsch](README.de.md)
+[Français](README.md) · **English** · [Deutsch](README.de.md) · **Website: [jbandrivet.github.io/freeoptical](https://jbandrivet.github.io/freeoptical/en/)**
 
 **Free sequential optical design and simulation software for Linux: graphical interface, terminal interface and MCP server.**
 
