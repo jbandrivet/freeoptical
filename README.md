@@ -32,6 +32,8 @@ Depuis les sources : `cargo build --release` ; le paquet se construit avec `./pa
 freeoptical
 # Ou en chargeant un fichier système JSON :
 freeoptical --fichier systeme_optique.json
+# Ou en important un fichier TDESIGN / LENSDES / RAYTRACE :
+freeoptical --fichier RITCHRET.TDS
 ```
 
 #### Raccourcis clavier dans l'interface :
@@ -52,9 +54,16 @@ freeoptical --fichier systeme_optique.json
 - **`P`** : Mise au point paraxiale automatique (ajuste le tirage sur le `BFL`)
 - **`Q`** : Quitter
 
-Dans la fenêtre graphique, le menu `Fichier` sauvegarde et recharge `systeme_optique.json` dans le répertoire courant.
+Dans la fenêtre graphique, le menu `Fichier` sauvegarde et recharge `systeme_optique.json` dans le répertoire courant. On peut aussi glisser un fichier `.json`, `.TDS`, `.RLD` ou `.DES` sur la fenêtre.
 Le bouton **`Mise à jour`** (en bas à droite, ou menu `Outils`) cherche la dernière version publiée sur GitHub ; si elle est plus récente, il télécharge le paquet `.deb`, vérifie son empreinte SHA-256 et l'installe avec `apt-get` (le mot de passe administrateur est demandé par `pkexec`), puis propose de redémarrer FreeOptical.
 Les coefficients asphériques A4, A6, A8, A10 de la surface sélectionnée s'éditent sur la ligne au-dessus du tableau LDE (glisser : 0,1 µm de flèche au bord par pixel ; clic : saisie directe, ex. `2.1e-7`) ; modifier un coefficient passe la surface en type `ASPHERIQUE`.
+
+#### Import des fichiers TDESIGN, LENSDES et RAYTRACE
+FreeOptical lit les fichiers de conception des programmes du livre *Telescope Optics: Evaluation and Design* (H. G. J. Rutten et M. A. M. van Venrooij, Willmann-Bell, 1988) : `.TDS` (TDESIGN, télescopes à miroirs et catadioptriques), `.RLD` (LENSDES, objectifs de lunette) et `.DES` (RAYTRACE). Menu `Fichier` → `Importer TDESIGN / LENSDES / RAYTRACE`, option `--fichier`, ou outil MCP `importer_teloptik`.
+- Sont repris : sphères, coniques, asphères (coefficients en r² à r¹⁰), lames de Schmidt définies par leur puissance relative et leur zone neutre (profil du 3e ordre), miroirs (changement de signe de l'indice, y compris dans le verre d'un Mangin), décalages axiaux, indices N1/N2/N3 convertis en verre `nd:Vd`, diamètres limites quand le vignettage était activé dans RAYTRACE.
+- Le plan image est placé au foyer paraxial et les demi-diamètres sont calculés pour laisser passer le faisceau sur l'axe et à 0,5° de champ.
+- Les obstructions centrales sont ignorées (signalées) ; les systèmes basculés ou décentrés sont refusés, FreeOptical ne gérant pas encore les surfaces non centrées.
+- La focale inscrite dans l'en-tête est comparée à la focale recalculée : elles coïncident pour les fichiers enregistrés par RAYTRACE ; les avant-projets de TDESIGN gardent la focale visée, sans la puissance du correcteur.
 
 #### Conventions optiques
 - **Diaphragme (`STOP`)** : la pupille d'entrée est l'image paraxiale du diaphragme ; les rayons hors axe sont visés au centre de cette pupille.
@@ -77,6 +86,7 @@ freeoptical --mcp
 - `lancer_simulation()` : Exécute le lancer de rayons séquentiel et retourne les données paraxiales, les rayons 3D et la LSA.
 - `obtenir_spot_diagram()` : Retourne les coordonnées des impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
 - `optimiser_systeme(variables, cibles)` : Exécute l'optimiseur Damped Least Squares (DLS).
+- `importer_teloptik(chemin)` : Importe un fichier `.TDS`, `.RLD` ou `.DES` (TDESIGN, LENSDES, RAYTRACE) comme système courant.
 
 ---
 

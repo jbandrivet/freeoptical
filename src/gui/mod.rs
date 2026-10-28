@@ -12,6 +12,7 @@ use crate::{
         optimizer::{OptimizationTarget, OptimizationVariable, optimiser_systeme_dls},
         paraxial::{ParaxialData, calculer_paraxial},
         presets::{creer_interferometre_bath, creer_singlet_aspherique, creer_telescope_cassegrain},
+        teloptik::{est_fichier_teloptik, importer_fichier_teloptik},
         raytracer::{
             TracedRay, snell_descartes_3d, tracer_eventail_meridional, tracer_grille_hexapolaire,
         },
@@ -21,6 +22,7 @@ use crate::{
     ui::app::ActiveView,
 };
 use anyhow::Result;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use eframe::egui::{
     self, Align2, Color32, Context, CornerRadius, FontFamily, FontId, Frame as EguiFrame, Key,
@@ -244,6 +246,10 @@ pub struct FreeOpticalGuiApp {
     pub fenetre_maj: bool,
     pub etat_maj: EtatMaj,
     recepteur_maj: Option<mpsc::Receiver<EtatMaj>>,
+    pub fenetre_import: bool,
+    pub dossier_import: String,
+    /// Résultat du dernier import (message, avertissements) affiché dans la fenêtre d'import
+    pub bilan_import: Option<(String, Vec<String>)>,
 }
 
 impl FreeOpticalGuiApp {
@@ -272,6 +278,11 @@ impl FreeOpticalGuiApp {
             fenetre_maj: false,
             etat_maj: EtatMaj::Recherche,
             recepteur_maj: None,
+            fenetre_import: false,
+            dossier_import: std::env::current_dir()
+                .map(|d| d.display().to_string())
+                .unwrap_or_default(),
+            bilan_import: None,
         }
     }
 
@@ -291,6 +302,134 @@ impl FreeOpticalGuiApp {
         self.pan_offset = Vec2::ZERO;
         self.recalculer();
         self.statut_message = msg.into();
+    }
+
+    /// Ouvre un fichier système : `.json` FreeOptical, ou `.TDS` / `.RLD` / `.DES` des programmes
+    /// TDESIGN, LENSDES et RAYTRACE (Rutten et van Venrooij)
+    pub fn ouvrir_fichier(&mut self, chemin: &Path) {
+        if est_fichier_teloptik(chemin) {
+            match importer_fichier_teloptik(chemin) {
+                Ok(import) => {
+                    let nom = import.systeme.nom.clone();
+                    let msg = format!(
+                        "'{}' importé depuis {} ({} avertissement(s)).",
+                        nom,
+                        chemin.display(),
+                        import.avertissements.len()
+                    );
+                    self.charger_systeme(import.systeme, msg.clone());
+                    let focale = self.paraxial.focale_effl_mm;
+                    let mut lignes = import.avertissements;
+                    lignes.insert(
+                        0,
+                        format!(
+                            "Focale inscrite dans le fichier : {:.2} mm — focale paraxiale recalculée : {:.2} mm.",
+                            import.focale_fichier_mm.abs(),
+                            focale.abs()
+                        ),
+                    );
+                    self.bilan_import = Some((msg, lignes));
+                }
+                Err(e) => {
+                    self.statut_message = format!("ÉCHEC de l'import : {e}");
+                    self.bilan_import = Some((self.statut_message.clone(), Vec::new()));
+                }
+            }
+            return;
+        }
+        let resultat = std::fs::read_to_string(chemin)
+            .map_err(|e| e.to_string())
+            .and_then(|c| serde_json::from_str::<OpticalSystem>(&c).map_err(|e| e.to_string()));
+        match resultat {
+            Ok(sys) if sys.surfaces.len() >= 2 => {
+                let msg = format!("Système '{}' chargé depuis {}.", sys.nom, chemin.display());
+                self.charger_systeme(sys, msg);
+            }
+            Ok(_) => {
+                self.statut_message = format!(
+                    "Fichier {} invalide : il faut au moins une surface et un plan image.",
+                    chemin.display()
+                )
+            }
+            Err(e) => self.statut_message = format!("Ouverture de {} impossible : {e}", chemin.display()),
+        }
+    }
+
+    fn dessiner_fenetre_import(&mut self, ctx: &Context) {
+        if !self.fenetre_import {
+            return;
+        }
+        let mut ouverte = true;
+        let mut a_ouvrir: Option<PathBuf> = None;
+        let mut fermer = false;
+        egui::Window::new(
+            RichText::new(" Importer TDESIGN / LENSDES / RAYTRACE ").monospace().strong(),
+        )
+        .open(&mut ouverte)
+        .collapsible(false)
+        .resizable(true)
+        .default_width(560.0)
+        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(
+                "Fichiers .TDS, .RLD et .DES des programmes du livre « Telescope Optics » \
+                 (Rutten et van Venrooij). On peut aussi glisser un fichier sur la fenêtre.",
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Dossier :");
+                ui.add(egui::TextEdit::singleline(&mut self.dossier_import).desired_width(440.0));
+            });
+            let dossier = PathBuf::from(self.dossier_import.trim());
+            let mut fichiers: Vec<PathBuf> = std::fs::read_dir(&dossier)
+                .map(|it| {
+                    it.filter_map(|e| e.ok().map(|e| e.path()))
+                        .filter(|p| est_fichier_teloptik(p))
+                        .collect()
+                })
+                .unwrap_or_default();
+            fichiers.sort_by_key(|p| p.file_name().map(|n| n.to_ascii_uppercase()));
+            ui.add_space(4.0);
+            if fichiers.is_empty() {
+                ui.label(
+                    RichText::new("Aucun fichier .TDS / .RLD / .DES dans ce dossier.").color(COL_DOS_ORANGE),
+                );
+            } else {
+                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        for f in &fichiers {
+                            let nom = f.file_name().unwrap_or_default().to_string_lossy();
+                            if ui.button(RichText::new(nom).monospace()).clicked() {
+                                a_ouvrir = Some(f.clone());
+                            }
+                        }
+                    });
+                });
+            }
+            if let Some((msg, lignes)) = &self.bilan_import {
+                ui.separator();
+                let couleur = if msg.starts_with("ÉCHEC") { COL_DOS_RED } else { COL_DOS_GREEN };
+                ui.label(RichText::new(msg).color(couleur));
+                egui::ScrollArea::vertical()
+                    .id_salt("avertissements_import")
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        for l in lignes {
+                            ui.label(RichText::new(format!("• {l}")).color(COL_DOS_YELLOW));
+                        }
+                    });
+            }
+            ui.add_space(6.0);
+            if ui.button("Fermer").clicked() {
+                fermer = true;
+            }
+        });
+        if let Some(f) = a_ouvrir {
+            self.ouvrir_fichier(&f);
+        }
+        if !ouverte || fermer {
+            self.fenetre_import = false;
+        }
     }
 
     pub fn optimiser_dls(&mut self) {
@@ -634,16 +773,24 @@ impl eframe::App for FreeOpticalGuiApp {
                             );
                             ui.close();
                         }
+                        if ui
+                            .button("6. Importer TDESIGN / LENSDES / RAYTRACE (.TDS, .RLD, .DES)…")
+                            .clicked()
+                        {
+                            self.bilan_import = None;
+                            self.fenetre_import = true;
+                            ui.close();
+                        }
                         ui.separator();
                         if ui
-                            .button("6. Sauvegarder dans systeme_optique.json")
+                            .button("7. Sauvegarder dans systeme_optique.json")
                             .clicked()
                         {
                             self.statut_message = sauvegarder_systeme(&self.systeme);
                             ui.close();
                         }
                         if ui
-                            .button("7. Recharger systeme_optique.json")
+                            .button("8. Recharger systeme_optique.json")
                             .clicked()
                         {
                             match charger_systeme_fichier() {
@@ -652,7 +799,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             }
                             ui.close();
                         }
-                        if ui.button("8. Quitter").clicked() {
+                        if ui.button("9. Quitter").clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
@@ -895,6 +1042,19 @@ impl eframe::App for FreeOpticalGuiApp {
             });
 
         self.dessiner_fenetre_maj(&ctx);
+        self.dessiner_fenetre_import(&ctx);
+
+        // Glisser-déposer d'un fichier système (.json, .TDS, .RLD, .DES) sur la fenêtre
+        let depose = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| {
+            let p = f.path();
+            (!p.as_os_str().is_empty()).then(|| p.to_path_buf())
+        }));
+        if let Some(chemin) = depose {
+            self.ouvrir_fichier(&chemin);
+            if est_fichier_teloptik(&chemin) {
+                self.fenetre_import = true;
+            }
+        }
     }
 }
 

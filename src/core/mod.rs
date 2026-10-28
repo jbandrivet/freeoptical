@@ -6,4 +6,5 @@ pub mod optimizer;
 pub mod paraxial;
 pub mod presets;
 pub mod raytracer;
+pub mod teloptik;
 pub mod types;

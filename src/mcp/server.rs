@@ -6,6 +6,7 @@ use crate::core::{
     optimizer::{OptimizationReport, OptimizationTarget, OptimizationVariable, optimiser_systeme_dls},
     paraxial::{ParaxialData, calculer_paraxial},
     raytracer::{TracedRay, tracer_eventail_meridional},
+    teloptik::importer_fichier_teloptik,
     types::{OpticalSystem, Surface, SurfaceType},
 };
 use rmcp::{
@@ -81,6 +82,13 @@ pub struct OptimiserSystemeParams {
     pub variables: Vec<OptimizationVariable>,
     /// Liste des cibles de la fonction de mérite ("focale", "spot_rms", "aberration_spherique", "tirage_bfl")
     pub cibles: Vec<OptimizationTarget>,
+}
+
+/// Paramètres de l'outil MCP `importer_teloptik(chemin)`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ImporterTeloptikParams {
+    /// Chemin absolu d'un fichier `.TDS` (TDESIGN), `.RLD` (LENSDES) ou `.DES` (RAYTRACE)
+    pub chemin: String,
 }
 
 /// Données brutes retournées par `lancer_simulation()`
@@ -258,6 +266,31 @@ impl FreeOpticalMcpServer {
         serde_json::to_string_pretty(&reponse).unwrap_or_default()
     }
 
+    /// Remplace le système courant par un fichier TDESIGN / LENSDES / RAYTRACE importé.
+    #[tool(
+        name = "importer_teloptik",
+        description = "Importe un fichier .TDS (TDESIGN), .RLD (LENSDES) ou .DES (RAYTRACE) des programmes du livre « Telescope Optics » de Rutten et van Venrooij, et en fait le système courant. Retourne le système, ses données paraxiales, la focale inscrite dans le fichier et les éléments non repris (obstructions, couleurs supplémentaires…). Les systèmes basculés ou décentrés sont refusés."
+    )]
+    pub async fn importer_teloptik(
+        &self,
+        Parameters(params): Parameters<ImporterTeloptikParams>,
+    ) -> String {
+        match importer_fichier_teloptik(std::path::Path::new(&params.chemin)) {
+            Ok(import) => {
+                let mut sys = self.systeme.lock().unwrap();
+                *sys = import.systeme;
+                let reponse = serde_json::json!({
+                    "systeme": &*sys,
+                    "paraxial": calculer_paraxial(&sys),
+                    "focale_fichier_mm": import.focale_fichier_mm,
+                    "avertissements": import.avertissements,
+                });
+                serde_json::to_string_pretty(&reponse).unwrap_or_default()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
     /// Exécute le lancer de rayons séquentiel et retourne les données brutes (paraxial, rayons, LSA).
     #[tool(
         name = "lancer_simulation",
@@ -394,6 +427,35 @@ mod tests {
             }))
             .await;
         assert!(res_opt.contains("DLS terminé"));
+    }
+
+    #[tokio::test]
+    async fn test_outil_mcp_import_teloptik() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let chemin = std::env::temp_dir().join(format!("freeoptical_test_{}.TDS", std::process::id()));
+        std::fs::write(
+            &chemin,
+            "\"Parabole\"\r\n1,1,200,-1000,0\r\n-2000,0,-1\r\n0,0,0,0,0\r\n-1\r\n-1\r\n\"N\",\"N\"\r\n",
+        )
+        .unwrap();
+        let res = srv
+            .importer_teloptik(Parameters(ImporterTeloptikParams {
+                chemin: chemin.display().to_string(),
+            }))
+            .await;
+        std::fs::remove_file(&chemin).ok();
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(json["systeme"]["nom"], "Parabole");
+        let effl = json["paraxial"]["focale_effl_mm"].as_f64().unwrap();
+        assert!((effl - 1000.0).abs() < 1e-6, "EFFL = {effl}");
+        assert_eq!(srv.systeme.lock().unwrap().surfaces.len(), 2);
+
+        let erreur = srv
+            .importer_teloptik(Parameters(ImporterTeloptikParams {
+                chemin: "/inexistant.TDS".to_string(),
+            }))
+            .await;
+        assert!(erreur.contains("erreur"));
     }
 }
 
