@@ -57,9 +57,9 @@ pub fn est_fichier_teloptik(chemin: &Path) -> bool {
 /// Lit et convertit un fichier `.TDS`, `.RLD` ou `.DES`
 pub fn importer_fichier_teloptik(chemin: &Path) -> Result<ImportTeloptik, String> {
     let octets = std::fs::read(chemin)
-        .map_err(|e| format!("Lecture de '{}' impossible : {}", chemin.display(), e))?;
+        .map_err(|e| trf!("Lecture de '{}' impossible : {}", "Cannot read '{}': {}", "'{}' kann nicht gelesen werden: {}", chemin.display(), e))?;
     importer_teloptik(&octets)
-        .map_err(|e| format!("Fichier '{}' : {}", chemin.display(), e))
+        .map_err(|e| trf!("Fichier '{}' : {}", "File '{}': {}", "Datei '{}': {}", chemin.display(), e))
 }
 
 /// Moitié haute de la page de code 437 (MS-DOS), pour les titres accentués
@@ -132,7 +132,7 @@ impl Lecteur {
             .champs
             .get(self.pos)
             .cloned()
-            .ok_or_else(|| format!("fin de fichier prématurée (attendu : {quoi})"))?;
+            .ok_or_else(|| trf!("fin de fichier prématurée (attendu : {quoi})", "unexpected end of file (expected: {quoi})", "vorzeitiges Dateiende (erwartet: {quoi})"))?;
         self.pos += 1;
         Ok(champ)
     }
@@ -148,7 +148,7 @@ impl Lecteur {
             .parse::<f64>()
             .ok()
             .filter(|v| v.is_finite())
-            .ok_or_else(|| format!("valeur « {champ} » illisible (attendu : {quoi})"))
+            .ok_or_else(|| trf!("valeur « {champ} » illisible (attendu : {quoi})", "unreadable value \"{champ}\" (expected: {quoi})", "unlesbarer Wert „{champ}“ (erwartet: {quoi})"))
     }
 
     fn reste(&self) -> &[String] {
@@ -176,14 +176,14 @@ struct SurfaceBrute {
 
 fn libelle_code(code: i32) -> &'static str {
     match code {
-        0 => "Sphère",
-        -1 => "Conique",
-        1..=5 => "Asphère",
-        6 => "Pupille",
+        0 => tr!("Sphère", "Sphere", "Sphäre"),
+        -1 => tr!("Conique", "Conic", "Konisch"),
+        1..=5 => tr!("Asphère", "Asphere", "Asphäre"),
+        6 => tr!("Pupille", "Pupil", "Pupille"),
         7 => "Baffle",
-        8 => "Diaphragme",
-        9 => "Lame de Schmidt",
-        _ => "Plan",
+        8 => tr!("Diaphragme", "Stop", "Blende"),
+        9 => tr!("Lame de Schmidt", "Schmidt plate", "Schmidtplatte"),
+        _ => tr!("Plan", "Flat", "Plan"),
     }
 }
 
@@ -195,60 +195,60 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
     };
     let mut avertissements = Vec::new();
 
-    let titre = lecteur.texte("titre")?.trim().to_string();
-    let nb_surfaces = lecteur.nombre("nombre de surfaces")?;
-    let nb_indices = lecteur.nombre("nombre d'indices")?;
+    let titre = lecteur.texte(tr!("titre", "title", "Titel"))?.trim().to_string();
+    let nb_surfaces = lecteur.nombre(tr!("nombre de surfaces", "number of surfaces", "Anzahl der Flächen"))?;
+    let nb_indices = lecteur.nombre(tr!("nombre d'indices", "number of indices", "Anzahl der Indizes"))?;
     if !(1.0..=35.0).contains(&nb_surfaces) || nb_surfaces.fract() != 0.0 {
-        return Err(format!(
-            "nombre de surfaces {nb_surfaces} invalide (1 à 35) : ce n'est pas un fichier TDESIGN, LENSDES ou RAYTRACE"
+        return Err(trf!(
+            "nombre de surfaces {nb_surfaces} invalide (1 à 35) : ce n'est pas un fichier TDESIGN, LENSDES ou RAYTRACE", "invalid number of surfaces {nb_surfaces} (1 to 35): this is not a TDESIGN, LENSDES or RAYTRACE file", "ungültige Flächenanzahl {nb_surfaces} (1 bis 35): keine TDESIGN-, LENSDES- oder RAYTRACE-Datei"
         ));
     }
     if !(1.0..=5.0).contains(&nb_indices) || nb_indices.fract() != 0.0 {
-        return Err(format!("nombre d'indices par surface {nb_indices} invalide (1 à 5)"));
+        return Err(trf!("nombre d'indices par surface {nb_indices} invalide (1 à 5)", "invalid number of indices per surface {nb_indices} (1 to 5)", "ungültige Anzahl von Indizes pro Fläche {nb_indices} (1 bis 5)"));
     }
     let (nb_surfaces, nb_indices) = (nb_surfaces as usize, nb_indices as usize);
-    let pupille_mm = lecteur.nombre("diamètre de la pupille d'entrée")?;
+    let pupille_mm = lecteur.nombre(tr!("diamètre de la pupille d'entrée", "entrance pupil diameter", "Durchmesser der Eintrittspupille"))?;
     if pupille_mm <= 0.0 {
-        return Err(format!("diamètre de pupille d'entrée {pupille_mm} invalide"));
+        return Err(trf!("diamètre de pupille d'entrée {pupille_mm} invalide", "invalid entrance pupil diameter {pupille_mm}", "ungültiger Durchmesser der Eintrittspupille {pupille_mm}"));
     }
-    let focale_fichier_mm = lecteur.nombre("focale")?;
-    lecteur.nombre("paramètre d'en-tête")?;
+    let focale_fichier_mm = lecteur.nombre(tr!("focale", "focal length", "Brennweite"))?;
+    lecteur.nombre(tr!("paramètre d'en-tête", "header parameter", "Kopfparameter"))?;
 
     let mut brutes = Vec::with_capacity(nb_surfaces);
     for i in 1..=nb_surfaces {
-        let rayon = lecteur.nombre(&format!("rayon de la surface {i}"))?;
-        let distance = lecteur.nombre(&format!("distance de la surface {i}"))?;
-        let code_f = lecteur.nombre(&format!("code de la surface {i}"))?;
+        let rayon = lecteur.nombre(&trf!("rayon de la surface {i}", "radius of surface {i}", "Radius der Fläche {i}"))?;
+        let distance = lecteur.nombre(&trf!("distance de la surface {i}", "distance of surface {i}", "Abstand der Fläche {i}"))?;
+        let code_f = lecteur.nombre(&trf!("code de la surface {i}", "code of surface {i}", "Code der Fläche {i}"))?;
         if !(-1.0..=10.0).contains(&code_f) || code_f.fract() != 0.0 {
-            return Err(format!("code de surface {code_f} inconnu (surface {i})"));
+            return Err(trf!("code de surface {code_f} inconnu (surface {i})", "unknown surface code {code_f} (surface {i})", "unbekannter Flächencode {code_f} (Fläche {i})"));
         }
         let code = code_f as i32;
         let mut s = SurfaceBrute {
             rayon,
             distance,
             code,
-            diametre_max: lecteur.nombre(&format!("diamètre max. de la surface {i}"))?,
-            diametre_obstruction: lecteur.nombre(&format!("obstruction de la surface {i}"))?,
-            decalage_axial: lecteur.nombre(&format!("décalage axial de la surface {i}"))?,
-            decentrement_x: lecteur.nombre(&format!("décentrement de la surface {i}"))?,
-            sinus_bascule: lecteur.nombre(&format!("bascule de la surface {i}"))?,
+            diametre_max: lecteur.nombre(&trf!("diamètre max. de la surface {i}", "max. diameter of surface {i}", "max. Durchmesser der Fläche {i}"))?,
+            diametre_obstruction: lecteur.nombre(&trf!("obstruction de la surface {i}", "obstruction of surface {i}", "Obstruktion der Fläche {i}"))?,
+            decalage_axial: lecteur.nombre(&trf!("décalage axial de la surface {i}", "axial shift of surface {i}", "axiale Verschiebung der Fläche {i}"))?,
+            decentrement_x: lecteur.nombre(&trf!("décentrement de la surface {i}", "decenter of surface {i}", "Dezentrierung der Fläche {i}"))?,
+            sinus_bascule: lecteur.nombre(&trf!("bascule de la surface {i}", "tilt of surface {i}", "Kippung der Fläche {i}"))?,
             conique: 0.0,
             coefficients: [0.0; 5],
             schmidt: None,
             indices: Vec::with_capacity(nb_indices),
         };
         match code {
-            -1 => s.conique = lecteur.nombre(&format!("constante conique de la surface {i}"))?,
+            -1 => s.conique = lecteur.nombre(&trf!("constante conique de la surface {i}", "conic constant of surface {i}", "konische Konstante der Fläche {i}"))?,
             1..=5 => {
                 for k in 0..code as usize {
                     s.coefficients[k] =
-                        lecteur.nombre(&format!("coefficient asphérique {} de la surface {i}", k + 1))?;
+                        lecteur.nombre(&trf!("coefficient asphérique {} de la surface {i}", "aspheric coefficient {} of surface {i}", "Asphärenkoeffizient {} der Fläche {i}", k + 1))?;
                 }
             }
             9 => {
                 let mut p = [0.0; 4];
                 for (k, v) in p.iter_mut().enumerate() {
-                    *v = lecteur.nombre(&format!("paramètre {} de la lame de Schmidt (surface {i})", k + 1))?;
+                    *v = lecteur.nombre(&trf!("paramètre {} de la lame de Schmidt (surface {i})", "Schmidt plate parameter {} (surface {i})", "Parameter {} der Schmidtplatte (Fläche {i})", k + 1))?;
                 }
                 s.schmidt = Some(p);
             }
@@ -256,10 +256,10 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         }
         for c in 1..=nb_indices {
             s.indices
-                .push(lecteur.nombre(&format!("indice {c} après la surface {i}"))?);
+                .push(lecteur.nombre(&trf!("indice {c} après la surface {i}", "index {c} after surface {i}", "Index {c} nach Fläche {i}"))?);
         }
         if s.indices[0].abs() < 0.5 {
-            return Err(format!("indice {} après la surface {i} invalide", s.indices[0]));
+            return Err(trf!("indice {} après la surface {i} invalide", "invalid index {} after surface {i}", "ungültiger Index {} nach Fläche {i}", s.indices[0]));
         }
         brutes.push(s);
     }
@@ -279,8 +279,8 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         .map(|(i, _)| (i + 1).to_string())
         .collect();
     if !non_centrees.is_empty() {
-        return Err(format!(
-            "surface(s) {} basculée(s) ou décentrée(s) : FreeOptical ne gère pas encore les systèmes non centrés, l'import fausserait le système",
+        return Err(trf!(
+            "surface(s) {} basculée(s) ou décentrée(s) : FreeOptical ne gère pas encore les systèmes non centrés, l'import fausserait le système", "surface(s) {} tilted or decentered: FreeOptical does not handle non-centered systems yet, importing would distort the system", "Fläche(n) {} gekippt oder dezentriert: FreeOptical unterstützt noch keine nicht zentrierten Systeme, der Import würde das System verfälschen",
             non_centrees.join(", ")
         ));
     }
@@ -304,8 +304,8 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         let n_apres = s.indices[0];
         let est_miroir = n_apres.signum() != indice_avant.signum();
         if est_miroir && (n_apres.abs() - indice_avant.abs()).abs() > 1e-6 {
-            avertissements.push(format!(
-                "Surface {} : l'indice change de valeur au moment de la réflexion ({} → {}) ; la réflexion est conservée dans le milieu incident.",
+            avertissements.push(trf!(
+                "Surface {} : l'indice change de valeur au moment de la réflexion ({} → {}) ; la réflexion est conservée dans le milieu incident.", "Surface {}: the index changes value at the reflection ({} → {}); the reflection is kept in the incident medium.", "Fläche {}: der Index ändert sich bei der Reflexion ({} → {}); die Reflexion bleibt im einfallenden Medium.",
                 i + 1,
                 indice_avant,
                 n_apres
@@ -354,7 +354,7 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
 
         let mut commentaire = libelle_code(s.code).to_string();
         if est_miroir {
-            commentaire = format!("Miroir ({})", commentaire.to_lowercase());
+            commentaire = trf!("Miroir ({})", "Mirror ({})", "Spiegel ({})", commentaire.to_lowercase());
         }
 
         // Coefficients asphériques : r² repris dans la courbure, r⁴ à r¹⁰ dans A4..A10
@@ -373,28 +373,28 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
                 surf.aspheriques[0] += a4;
                 a2 = -2.0 * zone_neutre * zone_neutre * h * h * a4;
             }
-            commentaire = format!(
-                "Lame de Schmidt (P = {puissance}, zone neutre {zone_neutre}, R primaire {rayon_primaire})"
+            commentaire = trf!(
+                "Lame de Schmidt (P = {puissance}, zone neutre {zone_neutre}, R primaire {rayon_primaire})", "Schmidt plate (P = {puissance}, neutral zone {zone_neutre}, primary R {rayon_primaire})", "Schmidtplatte (P = {puissance}, neutrale Zone {zone_neutre}, R Hauptspiegel {rayon_primaire})"
             );
         }
         if a2 != 0.0 {
             if let Some(ecart) = integrer_terme_r2(&mut surf, a2, 0.6 * pupille_mm.max(s.diametre_max)) {
-                avertissements.push(format!(
-                    "Surface {} : terme en r² approché par la courbure (écart de flèche {:.1e} mm au bord).",
+                avertissements.push(trf!(
+                    "Surface {} : terme en r² approché par la courbure (écart de flèche {:.1e} mm au bord).", "Surface {}: r² term approximated by the curvature (sag error {:.1e} mm at the edge).", "Fläche {}: r²-Term durch die Krümmung angenähert (Pfeilhöhenfehler {:.1e} mm am Rand).",
                     i + 1,
                     ecart
                 ));
             }
         }
         if s.schmidt.is_some() {
-            avertissements.push(format!(
-                "Surface {} : lame de Schmidt reconstruite au 3e ordre (termes r² et r⁴) à partir de sa puissance et de sa zone neutre.",
+            avertissements.push(trf!(
+                "Surface {} : lame de Schmidt reconstruite au 3e ordre (termes r² et r⁴) à partir de sa puissance et de sa zone neutre.", "Surface {}: Schmidt plate rebuilt to third order (r² and r⁴ terms) from its power and neutral zone.", "Fläche {}: Schmidtplatte in dritter Ordnung (r²- und r⁴-Terme) aus Stärke und neutraler Zone rekonstruiert.",
                 i + 1
             ));
         }
 
         if s.diametre_obstruction > 0.0 {
-            commentaire.push_str(&format!(" — obstruction Ø{} non modélisée", s.diametre_obstruction));
+            commentaire.push_str(&trf!(" — obstruction Ø{} non modélisée", " — Ø{} obstruction not modelled", " — Obstruktion Ø{} nicht modelliert", s.diametre_obstruction));
             obstructions.push(format!("{} (Ø{})", i + 1, s.diametre_obstruction));
         }
         surf.commentaire = commentaire;
@@ -406,34 +406,34 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
     }
 
     if !obstructions.is_empty() {
-        avertissements.push(format!(
-            "Obstructions centrales ignorées (non gérées par FreeOptical), surfaces {} : le spot diagram inclut les rayons centraux.",
+        avertissements.push(trf!(
+            "Obstructions centrales ignorées (non gérées par FreeOptical), surfaces {} : le spot diagram inclut les rayons centraux.", "Central obstructions ignored (not handled by FreeOptical), surfaces {}: the spot diagram includes the central rays.", "Zentrale Obstruktionen ignoriert (von FreeOptical nicht unterstützt), Flächen {}: das Spotdiagramm enthält die zentralen Strahlen.",
             obstructions.join(", ")
         ));
     }
     if couleurs_ignorees {
         avertissements.push(
-            "Plus de 3 indices par surface : seuls N1 (d), N2 (C) et N3 (F) sont repris.".to_string(),
+            tr!("Plus de 3 indices par surface : seuls N1 (d), N2 (C) et N3 (F) sont repris.", "More than 3 indices per surface: only N1 (d), N2 (C) and N3 (F) are used.", "Mehr als 3 Indizes pro Fläche: nur N1 (d), N2 (C) und N3 (F) werden übernommen.").to_string(),
         );
     }
     if nb_indices == 2 {
         avertissements.push(
-            "2 indices par surface : couleur non identifiable, seul N1 est repris (verre sans dispersion).".to_string(),
+            tr!("2 indices par surface : couleur non identifiable, seul N1 est repris (verre sans dispersion).", "2 indices per surface: colour cannot be identified, only N1 is used (glass without dispersion).", "2 Indizes pro Fläche: Farbe nicht bestimmbar, nur N1 wird übernommen (Glas ohne Dispersion).").to_string(),
         );
     }
 
     surfaces[index_stop.unwrap_or(0)].est_diaphragme = true;
     let mut image = Surface::plan_image(10.0);
-    image.commentaire = "Plan Image (foyer paraxial)".to_string();
+    image.commentaire = tr!("Plan Image (foyer paraxial)", "Image plane (paraxial focus)", "Bildebene (paraxialer Fokus)").to_string();
     surfaces.push(image);
 
     let mut systeme = OpticalSystem {
-        nom: if titre.is_empty() { "Import TELOPTIK".to_string() } else { titre },
+        nom: if titre.is_empty() { "TELOPTIK".to_string() } else { titre },
         longueur_onde_ref_nm: LAMBDA_D_NM,
         longueurs_onde: if nb_indices >= 3 {
             Wavelength::visible_fdc()
         } else {
-            vec![Wavelength::new(LAMBDA_D_NM, 1.0, "d (Jaune 587.6 nm)")]
+            vec![Wavelength::new(LAMBDA_D_NM, 1.0, tr!("d (Jaune 587.6 nm)", "d (Yellow 587.6 nm)", "d (Gelb 587.6 nm)"))]
         },
         ouverture: ApertureSpec::PupilleEntreeMm(pupille_mm),
         champs_deg: vec![(0.0, 0.0), (0.0, 0.5)],
@@ -447,7 +447,7 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
     if bfl.is_finite() {
         systeme.surfaces[nb - 2].epaisseur = bfl;
     } else {
-        avertissements.push("Système afocal : le plan image est laissé contre la dernière surface.".to_string());
+        avertissements.push(tr!("Système afocal : le plan image est laissé contre la dernière surface.", "Afocal system: the image plane is left against the last surface.", "Afokales System: die Bildebene bleibt an der letzten Fläche.").to_string());
     }
 
     // Demi-diamètres : ouverture libre tracée sur l'axe et en bord de champ ; le diamètre du

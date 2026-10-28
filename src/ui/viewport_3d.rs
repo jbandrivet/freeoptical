@@ -256,16 +256,16 @@ pub fn dessiner_filaire_3d(f: &mut Frame, zone: Rect, app: &AppState) {
         };
         let info = Paragraph::new(Line::from(vec![
             Span::styled(
-                format!(
-                    "Rotation 3D [Touches H/L: Lacet {:.0}° | J/K: Tangage {:.0}°]  ",
+                trf!(
+                    "Rotation 3D [Touches H/L: Lacet {:.0}° | J/K: Tangage {:.0}°]  ", "3D rotation [Keys H/L: yaw {:.0}° | J/K: pitch {:.0}°]  ", "3D-Drehung [Tasten H/L: Gieren {:.0}° | J/K: Nicken {:.0}°]  ",
                     app.angle_3d_yaw_deg, app.angle_3d_pitch_deg
                 ),
                 Style::default().fg(DOS_YELLOW),
             ),
             Span::styled("── ", Style::default().fg(DOS_GREEN)),
-            Span::styled("Maillage Lentilles  ", Style::default().fg(DOS_WHITE)),
+            Span::styled(tr!("Maillage Lentilles  ", "Lens mesh  ", "Linsennetz  "), Style::default().fg(DOS_WHITE)),
             Span::styled("── ", Style::default().fg(DOS_CYAN)),
-            Span::styled("Faisceau 3D", Style::default().fg(DOS_WHITE)),
+            Span::styled(tr!("Faisceau 3D", "3D beam", "3D-Strahlenbündel"), Style::default().fg(DOS_WHITE)),
         ]));
         f.render_widget(info, info_rect);
     }

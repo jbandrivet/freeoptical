@@ -3,6 +3,7 @@
 //! et contrôle interactif à la souris et au clavier.
 
 use crate::{
+    i18n::{self, Langue},
     core::{
         analysis::{
             LongitudinalAberrationResult, SpotDiagramResult,
@@ -167,14 +168,20 @@ fn est_verre(sys: &OpticalSystem, surf: &Surface) -> bool {
 /// Fichier de sauvegarde du système, dans le répertoire courant
 const FICHIER_SYSTEME: &str = "systeme_optique.json";
 
+fn titre_fenetre() -> String {
+    trf!(
+        "FreeOptical v{} — Conception & Simulation Optique Séquentielle",
+        "FreeOptical v{} — Sequential Optical Design & Simulation",
+        "FreeOptical v{} — Sequentielles Optikdesign & Simulation",
+        maj::VERSION_COURANTE
+    )
+}
+
 /// Lance la fenêtre graphique autonome native de FreeOptical
 pub fn executer_gui_autonome(systeme_initial: OpticalSystem) -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title(format!(
-                "FreeOptical v{} — Conception & Simulation Optique Séquentielle",
-                maj::VERSION_COURANTE
-            ))
+            .with_title(titre_fenetre())
             .with_inner_size([1380.0, 860.0])
             .with_min_inner_size([960.0, 640.0])
             // L'app_id relie la fenêtre au lanceur freeoptical.desktop (icône sous Wayland)
@@ -196,7 +203,17 @@ pub fn executer_gui_autonome(systeme_initial: OpticalSystem) -> Result<()> {
             Ok(Box::new(FreeOpticalGuiApp::nouveau(systeme_initial)))
         }),
     )
-    .map_err(|e| anyhow::anyhow!("Erreur d'ouverture de la fenêtre graphique : {}", e))
+    .map_err(|e| {
+        anyhow::anyhow!(
+            "{}",
+            trf!(
+                "Erreur d'ouverture de la fenêtre graphique : {}",
+                "Cannot open the graphical window: {}",
+                "Das grafische Fenster kann nicht geöffnet werden: {}",
+                e
+            )
+        )
+    })
 }
 
 fn configurer_theme_dos(ctx: &Context) {
@@ -248,8 +265,8 @@ pub struct FreeOpticalGuiApp {
     recepteur_maj: Option<mpsc::Receiver<EtatMaj>>,
     pub fenetre_import: bool,
     pub dossier_import: String,
-    /// Résultat du dernier import (message, avertissements) affiché dans la fenêtre d'import
-    pub bilan_import: Option<(String, Vec<String>)>,
+    /// Résultat du dernier import (réussi, message, avertissements) affiché dans la fenêtre d'import
+    pub bilan_import: Option<(bool, String, Vec<String>)>,
 }
 
 impl FreeOpticalGuiApp {
@@ -257,8 +274,8 @@ impl FreeOpticalGuiApp {
         let paraxial = calculer_paraxial(&systeme);
         let spot = calculer_spot_diagram(&systeme, (0.0, 0.0), 4);
         let lsa = calculer_aberration_spherique_longitudinale(&systeme, 16);
-        let statut_message = format!(
-            "PRÊT — Système : {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
+        let statut_message = trf!(
+            "PRÊT — Système : {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm", "READY — System: {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm", "BEREIT — System: {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
             systeme.nom, paraxial.focale_effl_mm, spot.rayon_rms_um
         );
 
@@ -311,8 +328,8 @@ impl FreeOpticalGuiApp {
             match importer_fichier_teloptik(chemin) {
                 Ok(import) => {
                     let nom = import.systeme.nom.clone();
-                    let msg = format!(
-                        "'{}' importé depuis {} ({} avertissement(s)).",
+                    let msg = trf!(
+                        "'{}' importé depuis {} ({} avertissement(s)).", "'{}' imported from {} ({} warning(s)).", "'{}' importiert aus {} ({} Warnung(en)).",
                         nom,
                         chemin.display(),
                         import.avertissements.len()
@@ -322,17 +339,17 @@ impl FreeOpticalGuiApp {
                     let mut lignes = import.avertissements;
                     lignes.insert(
                         0,
-                        format!(
-                            "Focale inscrite dans le fichier : {:.2} mm — focale paraxiale recalculée : {:.2} mm.",
+                        trf!(
+                            "Focale inscrite dans le fichier : {:.2} mm — focale paraxiale recalculée : {:.2} mm.", "Focal length in the file: {:.2} mm — recomputed paraxial focal length: {:.2} mm.", "Brennweite in der Datei: {:.2} mm — neu berechnete paraxiale Brennweite: {:.2} mm.",
                             import.focale_fichier_mm.abs(),
                             focale.abs()
                         ),
                     );
-                    self.bilan_import = Some((msg, lignes));
+                    self.bilan_import = Some((true, msg, lignes));
                 }
                 Err(e) => {
-                    self.statut_message = format!("ÉCHEC de l'import : {e}");
-                    self.bilan_import = Some((self.statut_message.clone(), Vec::new()));
+                    self.statut_message = trf!("ÉCHEC de l'import : {e}", "Import FAILED: {e}", "Import FEHLGESCHLAGEN: {e}");
+                    self.bilan_import = Some((false, self.statut_message.clone(), Vec::new()));
                 }
             }
             return;
@@ -342,16 +359,16 @@ impl FreeOpticalGuiApp {
             .and_then(|c| serde_json::from_str::<OpticalSystem>(&c).map_err(|e| e.to_string()));
         match resultat {
             Ok(sys) if sys.surfaces.len() >= 2 => {
-                let msg = format!("Système '{}' chargé depuis {}.", sys.nom, chemin.display());
+                let msg = trf!("Système '{}' chargé depuis {}.", "System '{}' loaded from {}.", "System '{}' aus {} geladen.", sys.nom, chemin.display());
                 self.charger_systeme(sys, msg);
             }
             Ok(_) => {
-                self.statut_message = format!(
-                    "Fichier {} invalide : il faut au moins une surface et un plan image.",
+                self.statut_message = trf!(
+                    "Fichier {} invalide : il faut au moins une surface et un plan image.", "Invalid file {}: at least one surface and an image plane are required.", "Ungültige Datei {}: mindestens eine Fläche und eine Bildebene sind nötig.",
                     chemin.display()
                 )
             }
-            Err(e) => self.statut_message = format!("Ouverture de {} impossible : {e}", chemin.display()),
+            Err(e) => self.statut_message = trf!("Ouverture de {} impossible : {e}", "Cannot open {}: {e}", "{} kann nicht geöffnet werden: {e}", chemin.display()),
         }
     }
 
@@ -363,7 +380,7 @@ impl FreeOpticalGuiApp {
         let mut a_ouvrir: Option<PathBuf> = None;
         let mut fermer = false;
         egui::Window::new(
-            RichText::new(" Importer TDESIGN / LENSDES / RAYTRACE ").monospace().strong(),
+            RichText::new(tr!(" Importer TDESIGN / LENSDES / RAYTRACE ", " Import TDESIGN / LENSDES / RAYTRACE ", " TDESIGN / LENSDES / RAYTRACE importieren ")).monospace().strong(),
         )
         .open(&mut ouverte)
         .collapsible(false)
@@ -372,12 +389,18 @@ impl FreeOpticalGuiApp {
         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(
-                "Fichiers .TDS, .RLD et .DES des programmes du livre « Telescope Optics » \
-                 (Rutten et van Venrooij). On peut aussi glisser un fichier sur la fenêtre.",
+                tr!(
+                    "Fichiers .TDS, .RLD et .DES des programmes du livre « Telescope Optics » \
+                     (Rutten et van Venrooij). On peut aussi glisser un fichier sur la fenêtre.",
+                    ".TDS, .RLD and .DES files from the programs of the book \"Telescope Optics\" \
+                     (Rutten and van Venrooij). You can also drop a file onto the window.",
+                    ".TDS-, .RLD- und .DES-Dateien der Programme aus dem Buch „Telescope Optics“ \
+                     (Rutten und van Venrooij). Eine Datei kann auch auf das Fenster gezogen werden."
+                ),
             );
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label("Dossier :");
+                ui.label(tr!("Dossier :", "Folder:", "Ordner:"));
                 ui.add(egui::TextEdit::singleline(&mut self.dossier_import).desired_width(440.0));
             });
             let dossier = PathBuf::from(self.dossier_import.trim());
@@ -392,7 +415,7 @@ impl FreeOpticalGuiApp {
             ui.add_space(4.0);
             if fichiers.is_empty() {
                 ui.label(
-                    RichText::new("Aucun fichier .TDS / .RLD / .DES dans ce dossier.").color(COL_DOS_ORANGE),
+                    RichText::new(tr!("Aucun fichier .TDS / .RLD / .DES dans ce dossier.", "No .TDS / .RLD / .DES file in this folder.", "Keine .TDS- / .RLD- / .DES-Datei in diesem Ordner.")).color(COL_DOS_ORANGE),
                 );
             } else {
                 egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
@@ -406,9 +429,9 @@ impl FreeOpticalGuiApp {
                     });
                 });
             }
-            if let Some((msg, lignes)) = &self.bilan_import {
+            if let Some((reussi, msg, lignes)) = &self.bilan_import {
                 ui.separator();
-                let couleur = if msg.starts_with("ÉCHEC") { COL_DOS_RED } else { COL_DOS_GREEN };
+                let couleur = if *reussi { COL_DOS_GREEN } else { COL_DOS_RED };
                 ui.label(RichText::new(msg).color(couleur));
                 egui::ScrollArea::vertical()
                     .id_salt("avertissements_import")
@@ -420,7 +443,7 @@ impl FreeOpticalGuiApp {
                     });
             }
             ui.add_space(6.0);
-            if ui.button("Fermer").clicked() {
+            if ui.button(tr!("Fermer", "Close", "Schließen")).clicked() {
                 fermer = true;
             }
         });
@@ -430,6 +453,22 @@ impl FreeOpticalGuiApp {
         if !ouverte || fermer {
             self.fenetre_import = false;
         }
+    }
+
+    /// Change la langue de l'interface (titre de fenêtre compris) et l'enregistre
+    pub fn changer_langue(&mut self, ctx: &Context, l: Langue) {
+        i18n::definir_langue(l);
+        ctx.send_viewport_cmd(egui::ViewportCommand::Title(titre_fenetre()));
+        self.statut_message = match i18n::enregistrer_preference(l) {
+            Ok(()) => trf!("Langue : {}.", "Language: {}.", "Sprache: {}.", l.nom_natif()),
+            Err(e) => trf!(
+                "Langue : {} (choix non enregistré : {}).",
+                "Language: {} (choice not saved: {}).",
+                "Sprache: {} (Wahl nicht gespeichert: {}).",
+                l.nom_natif(),
+                e
+            ),
+        };
     }
 
     pub fn optimiser_dls(&mut self) {
@@ -478,13 +517,13 @@ impl FreeOpticalGuiApp {
         if bfl.is_finite() && bfl * self.systeme.sens_propagation_image() > 0.1 && n >= 2 {
             self.systeme.surfaces[n - 2].epaisseur = bfl;
             self.recalculer();
-            self.statut_message = format!(
-                "Mise au point paraxiale BFL effectuée : Tirage = {:.3} mm | Spot RMS = {:.2} µm",
+            self.statut_message = trf!(
+                "Mise au point paraxiale BFL effectuée : Tirage = {:.3} mm | Spot RMS = {:.2} µm", "Paraxial BFL focus done: back focus = {:.3} mm | Spot RMS = {:.2} µm", "Paraxiale Fokussierung (BFL) ausgeführt: Schnittweite = {:.3} mm | Spot RMS = {:.2} µm",
                 bfl, self.spot.rayon_rms_um
             );
         } else {
             self.statut_message =
-                "Mise au point impossible : image paraxiale virtuelle ou à l'infini.".to_string();
+                tr!("Mise au point impossible : image paraxiale virtuelle ou à l'infini.", "Cannot focus: paraxial image is virtual or at infinity.", "Fokussierung unmöglich: paraxiales Bild virtuell oder im Unendlichen.").to_string();
         }
     }
 
@@ -493,13 +532,13 @@ impl FreeOpticalGuiApp {
         let n = self.systeme.surfaces.len();
         if n <= 2 || self.ligne_selectionnee + 1 >= n {
             self.statut_message =
-                "IMPOSSIBLE : le plan image et la dernière surface optique ne peuvent pas être supprimés."
+                tr!("IMPOSSIBLE : le plan image et la dernière surface optique ne peuvent pas être supprimés.", "IMPOSSIBLE: the image plane and the last optical surface cannot be deleted.", "UNMÖGLICH: die Bildebene und die letzte optische Fläche können nicht gelöscht werden.")
                     .to_string();
             return;
         }
         self.systeme.surfaces.remove(self.ligne_selectionnee);
         self.recalculer();
-        self.statut_message = "Surface supprimée.".to_string();
+        self.statut_message = tr!("Surface supprimée.", "Surface deleted.", "Fläche gelöscht.").to_string();
     }
 
     /// Exécute une étape de mise à jour hors du fil de l'interface (réseau, pkexec)
@@ -548,12 +587,12 @@ impl FreeOpticalGuiApp {
             match recepteur.try_recv() {
                 Ok(etat) => {
                     self.statut_message = match &etat {
-                        EtatMaj::AJour => format!("FreeOptical v{} est à jour.", maj::VERSION_COURANTE),
-                        EtatMaj::Disponible(v) => format!("Mise à jour disponible : v{}", v.version),
+                        EtatMaj::AJour => trf!("FreeOptical v{} est à jour.", "FreeOptical v{} is up to date.", "FreeOptical v{} ist aktuell.", maj::VERSION_COURANTE),
+                        EtatMaj::Disponible(v) => trf!("Mise à jour disponible : v{}", "Update available: v{}", "Update verfügbar: v{}", v.version),
                         EtatMaj::Installee(v) => {
-                            format!("FreeOptical v{v} installé : redémarrer pour l'utiliser.")
+                            trf!("FreeOptical v{v} installé : redémarrer pour l'utiliser.", "FreeOptical v{v} installed: restart to use it.", "FreeOptical v{v} installiert: zum Verwenden neu starten.")
                         }
-                        EtatMaj::Erreur(e) => format!("Mise à jour : {e}"),
+                        EtatMaj::Erreur(e) => trf!("Mise à jour : {e}", "Update: {e}", "Update: {e}"),
                         _ => self.statut_message.clone(),
                     };
                     self.etat_maj = etat;
@@ -561,7 +600,7 @@ impl FreeOpticalGuiApp {
                 }
                 Err(mpsc::TryRecvError::Empty) => {}
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    self.etat_maj = EtatMaj::Erreur("La tâche de mise à jour s'est interrompue.".into());
+                    self.etat_maj = EtatMaj::Erreur(tr!("La tâche de mise à jour s'est interrompue.", "The update task stopped unexpectedly.", "Die Update-Aufgabe wurde unterbrochen.").into());
                     self.recepteur_maj = None;
                 }
             }
@@ -572,7 +611,7 @@ impl FreeOpticalGuiApp {
 
         let mut ouverte = true;
         let mut action: Option<&str> = None;
-        egui::Window::new(RichText::new(" Mise à jour de FreeOptical ").monospace().strong())
+        egui::Window::new(RichText::new(tr!(" Mise à jour de FreeOptical ", " FreeOptical update ", " FreeOptical-Update ")).monospace().strong())
             .open(&mut ouverte)
             .collapsible(false)
             .resizable(false)
@@ -580,7 +619,7 @@ impl FreeOpticalGuiApp {
             .show(ctx, |ui| {
                 ui.set_min_width(380.0);
                 ui.label(
-                    RichText::new(format!("Version installée : v{}", maj::VERSION_COURANTE))
+                    RichText::new(trf!("Version installée : v{}", "Installed version: v{}", "Installierte Version: v{}", maj::VERSION_COURANTE))
                         .monospace(),
                 );
                 ui.add_space(6.0);
@@ -588,38 +627,38 @@ impl FreeOpticalGuiApp {
                     EtatMaj::Recherche => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label("Recherche de la dernière version sur GitHub…");
+                            ui.label(tr!("Recherche de la dernière version sur GitHub…", "Looking for the latest version on GitHub…", "Suche nach der neuesten Version auf GitHub…"));
                         });
                     }
                     EtatMaj::AJour => {
-                        ui.label(RichText::new("FreeOptical est à jour.").color(COL_DOS_GREEN));
+                        ui.label(RichText::new(tr!("FreeOptical est à jour.", "FreeOptical is up to date.", "FreeOptical ist aktuell.")).color(COL_DOS_GREEN));
                         ui.add_space(6.0);
-                        if ui.button("Fermer").clicked() {
+                        if ui.button(tr!("Fermer", "Close", "Schließen")).clicked() {
                             action = Some("fermer");
                         }
                     }
                     EtatMaj::Disponible(v) => {
                         ui.label(
-                            RichText::new(format!("Nouvelle version disponible : v{}", v.version))
+                            RichText::new(trf!("Nouvelle version disponible : v{}", "New version available: v{}", "Neue Version verfügbar: v{}", v.version))
                                 .strong()
                                 .color(COL_DOS_YELLOW),
                         );
                         ui.add_space(6.0);
                         let automatique = v.deb.is_some() && maj::installation_automatique_possible();
                         if !automatique {
-                            ui.label("Installation automatique impossible ici : téléchargez le paquet depuis la page de la version.");
+                            ui.label(tr!("Installation automatique impossible ici : téléchargez le paquet depuis la page de la version.", "Automatic installation is not possible here: download the package from the release page.", "Automatische Installation hier nicht möglich: das Paket von der Versionsseite herunterladen."));
                         } else {
-                            ui.label("Le mot de passe administrateur sera demandé pour installer le paquet.");
+                            ui.label(tr!("Le mot de passe administrateur sera demandé pour installer le paquet.", "The administrator password will be asked to install the package.", "Zur Installation des Pakets wird das Administratorpasswort abgefragt."));
                         }
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
-                            if automatique && ui.button("Installer").clicked() {
+                            if automatique && ui.button(tr!("Installer", "Install", "Installieren")).clicked() {
                                 action = Some("installer");
                             }
-                            if ui.button("Voir les nouveautés").clicked() {
+                            if ui.button(tr!("Voir les nouveautés", "What's new", "Neuerungen ansehen")).clicked() {
                                 ctx.open_url(egui::OpenUrl::new_tab(&v.page));
                             }
-                            if ui.button("Plus tard").clicked() {
+                            if ui.button(tr!("Plus tard", "Later", "Später")).clicked() {
                                 action = Some("fermer");
                             }
                         });
@@ -627,23 +666,23 @@ impl FreeOpticalGuiApp {
                     EtatMaj::Installation(v) => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label(format!("Téléchargement et installation de la v{v}…"));
+                            ui.label(trf!("Téléchargement et installation de la v{v}…", "Downloading and installing v{v}…", "v{v} wird heruntergeladen und installiert…"));
                         });
-                        ui.label("Saisissez le mot de passe administrateur dans la fenêtre qui s'ouvre.");
+                        ui.label(tr!("Saisissez le mot de passe administrateur dans la fenêtre qui s'ouvre.", "Enter the administrator password in the window that opens.", "Das Administratorpasswort im sich öffnenden Fenster eingeben."));
                     }
                     EtatMaj::Installee(v) => {
                         ui.label(
-                            RichText::new(format!("FreeOptical v{v} est installé."))
+                            RichText::new(trf!("FreeOptical v{v} est installé.", "FreeOptical v{v} is installed.", "FreeOptical v{v} ist installiert."))
                                 .strong()
                                 .color(COL_DOS_GREEN),
                         );
-                        ui.label("Pensez à sauvegarder votre système avant de redémarrer.");
+                        ui.label(tr!("Pensez à sauvegarder votre système avant de redémarrer.", "Remember to save your system before restarting.", "Vor dem Neustart das System speichern."));
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Redémarrer FreeOptical").clicked() {
+                            if ui.button(tr!("Redémarrer FreeOptical", "Restart FreeOptical", "FreeOptical neu starten")).clicked() {
                                 action = Some("relancer");
                             }
-                            if ui.button("Plus tard").clicked() {
+                            if ui.button(tr!("Plus tard", "Later", "Später")).clicked() {
                                 action = Some("fermer");
                             }
                         });
@@ -652,13 +691,13 @@ impl FreeOpticalGuiApp {
                         ui.label(RichText::new(e).color(COL_DOS_RED));
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Réessayer").clicked() {
+                            if ui.button(tr!("Réessayer", "Retry", "Erneut versuchen")).clicked() {
                                 action = Some("rechercher");
                             }
-                            if ui.button("Page des versions").clicked() {
+                            if ui.button(tr!("Page des versions", "Releases page", "Versionsseite")).clicked() {
                                 ctx.open_url(egui::OpenUrl::new_tab(maj::PAGE_RELEASES));
                             }
-                            if ui.button("Fermer").clicked() {
+                            if ui.button(tr!("Fermer", "Close", "Schließen")).clicked() {
                                 action = Some("fermer");
                             }
                         });
@@ -724,57 +763,57 @@ impl eframe::App for FreeOpticalGuiApp {
                     );
                     ui.add_space(8.0);
 
-                    ui.menu_button(RichText::new(" Fichier ").monospace().strong(), |ui| {
+                    ui.menu_button(RichText::new(tr!(" Fichier ", " File ", " Datei ")).monospace().strong(), |ui| {
                         ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
-                        if ui.button("1. Nouveau système vierge").clicked() {
+                        if ui.button(tr!("1. Nouveau système vierge", "1. New empty system", "1. Neues leeres System")).clicked() {
                             self.charger_systeme(
-                                OpticalSystem::nouveau("Nouveau Système Optique", LAMBDA_D_NM),
-                                "Nouveau système optique initialisé.",
+                                OpticalSystem::nouveau(tr!("Nouveau Système Optique", "New Optical System", "Neues optisches System"), LAMBDA_D_NM),
+                                tr!("Nouveau système optique initialisé.", "New optical system created.", "Neues optisches System angelegt."),
                             );
                             ui.close();
                         }
                         if ui
-                            .button("2. Charger Doublet Fraunhofer 100mm (BK7/F2)")
+                            .button(tr!("2. Charger Doublet Fraunhofer 100mm (BK7/F2)", "2. Load Fraunhofer Doublet 100mm (BK7/F2)", "2. Fraunhofer-Achromat 100mm laden (BK7/F2)"))
                             .clicked()
                         {
                             self.charger_systeme(
                                 OpticalSystem::doublet_achromatique_defaut(),
-                                "Doublet Achromatique Fraunhofer 100mm chargé.",
+                                tr!("Doublet Achromatique Fraunhofer 100mm chargé.", "Fraunhofer Achromatic Doublet 100mm loaded.", "Fraunhofer-Achromat 100mm geladen."),
                             );
                             ui.close();
                         }
                         if ui
-                            .button("3. Charger Interféromètre de Bath (Laser He-Ne 632.8 nm)")
+                            .button(tr!("3. Charger Interféromètre de Bath (Laser He-Ne 632.8 nm)", "3. Load Bath Interferometer (He-Ne Laser 632.8 nm)", "3. Bath-Interferometer laden (He-Ne-Laser 632.8 nm)"))
                             .clicked()
                         {
                             self.charger_systeme(
                                 creer_interferometre_bath(),
-                                "Interféromètre de Bath (632.8 nm) avec Cube Séparateur chargé.",
+                                tr!("Interféromètre de Bath (632.8 nm) avec Cube Séparateur chargé.", "Bath Interferometer (632.8 nm) with beam splitter cube loaded.", "Bath-Interferometer (632.8 nm) mit Strahlteiler-Cube geladen."),
                             );
                             ui.close();
                         }
                         if ui
-                            .button("4. Charger Singlet Asphérique F/2 (LAK9)")
+                            .button(tr!("4. Charger Singlet Asphérique F/2 (LAK9)", "4. Load Aspheric Singlet F/2 (LAK9)", "4. Asphärische Einzellinse F/2 laden (LAK9)"))
                             .clicked()
                         {
                             self.charger_systeme(
                                 creer_singlet_aspherique(),
-                                "Singlet Asphérique F/2 (LAK9) chargé.",
+                                tr!("Singlet Asphérique F/2 (LAK9) chargé.", "Aspheric Singlet F/2 (LAK9) loaded.", "Asphärische Einzellinse F/2 (LAK9) geladen."),
                             );
                             ui.close();
                         }
                         if ui
-                            .button("5. Charger Télescope Cassegrain (Miroirs)")
+                            .button(tr!("5. Charger Télescope Cassegrain (Miroirs)", "5. Load Cassegrain Telescope (Mirrors)", "5. Cassegrain-Teleskop laden (Spiegel)"))
                             .clicked()
                         {
                             self.charger_systeme(
                                 creer_telescope_cassegrain(),
-                                "Télescope Cassegrain à miroirs chargé.",
+                                tr!("Télescope Cassegrain à miroirs chargé.", "Cassegrain mirror telescope loaded.", "Cassegrain-Spiegelteleskop geladen."),
                             );
                             ui.close();
                         }
                         if ui
-                            .button("6. Importer TDESIGN / LENSDES / RAYTRACE (.TDS, .RLD, .DES)…")
+                            .button(tr!("6. Importer TDESIGN / LENSDES / RAYTRACE (.TDS, .RLD, .DES)…", "6. Import TDESIGN / LENSDES / RAYTRACE (.TDS, .RLD, .DES)…", "6. TDESIGN / LENSDES / RAYTRACE importieren (.TDS, .RLD, .DES)…"))
                             .clicked()
                         {
                             self.bilan_import = None;
@@ -783,14 +822,14 @@ impl eframe::App for FreeOpticalGuiApp {
                         }
                         ui.separator();
                         if ui
-                            .button("7. Sauvegarder dans systeme_optique.json")
+                            .button(tr!("7. Sauvegarder dans systeme_optique.json", "7. Save to systeme_optique.json", "7. In systeme_optique.json speichern"))
                             .clicked()
                         {
                             self.statut_message = sauvegarder_systeme(&self.systeme);
                             ui.close();
                         }
                         if ui
-                            .button("8. Recharger systeme_optique.json")
+                            .button(tr!("8. Recharger systeme_optique.json", "8. Reload systeme_optique.json", "8. systeme_optique.json neu laden"))
                             .clicked()
                         {
                             match charger_systeme_fichier() {
@@ -799,40 +838,40 @@ impl eframe::App for FreeOpticalGuiApp {
                             }
                             ui.close();
                         }
-                        if ui.button("9. Quitter").clicked() {
+                        if ui.button(tr!("9. Quitter", "9. Quit", "9. Beenden")).clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
 
-                    ui.menu_button(RichText::new(" Édition ").monospace().strong(), |ui| {
+                    ui.menu_button(RichText::new(tr!(" Édition ", " Edit ", " Bearbeiten ")).monospace().strong(), |ui| {
                         ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
-                        if ui.button("Insérer une surface avant la sélection").clicked() {
+                        if ui.button(tr!("Insérer une surface avant la sélection", "Insert a surface before the selection", "Fläche vor der Auswahl einfügen")).clicked() {
                             let mut s =
                                 Surface::nouvelle(SurfaceType::Spherique, 100.0, 5.0, "BK7", 15.0);
-                            s.commentaire = "Nouvelle Surface".to_string();
+                            s.commentaire = tr!("Nouvelle Surface", "New Surface", "Neue Fläche").to_string();
                             let idx = self.ligne_selectionnee.min(self.systeme.surfaces.len());
                             self.systeme.surfaces.insert(idx, s);
                             self.recalculer();
                             ui.close();
                         }
                         if ui
-                            .button("Ajouter une surface avant le Plan Image")
+                            .button(tr!("Ajouter une surface avant le Plan Image", "Add a surface before the Image Plane", "Fläche vor der Bildebene hinzufügen"))
                             .clicked()
                         {
                             let mut s =
                                 Surface::nouvelle(SurfaceType::Spherique, 100.0, 10.0, "AIR", 15.0);
-                            s.commentaire = "Dioptre Ajouté".to_string();
+                            s.commentaire = tr!("Dioptre Ajouté", "Added Surface", "Hinzugefügte Fläche").to_string();
                             let idx = self.systeme.surfaces.len().saturating_sub(1);
                             self.systeme.surfaces.insert(idx, s);
                             self.ligne_selectionnee = idx;
                             self.recalculer();
                             ui.close();
                         }
-                        if ui.button("Supprimer la surface sélectionnée").clicked() {
+                        if ui.button(tr!("Supprimer la surface sélectionnée", "Delete the selected surface", "Ausgewählte Fläche löschen")).clicked() {
                             self.supprimer_surface_selectionnee();
                             ui.close();
                         }
-                        if ui.button("Définir comme Diaphragme (STOP)").clicked() {
+                        if ui.button(tr!("Définir comme Diaphragme (STOP)", "Set as aperture stop (STOP)", "Als Aperturblende setzen (STOP)")).clicked() {
                             for (i, s) in self.systeme.surfaces.iter_mut().enumerate() {
                                 s.est_diaphragme = i == self.ligne_selectionnee;
                             }
@@ -841,70 +880,86 @@ impl eframe::App for FreeOpticalGuiApp {
                         }
                     });
 
-                    ui.menu_button(RichText::new(" Analyse ").monospace().strong(), |ui| {
+                    ui.menu_button(RichText::new(tr!(" Analyse ", " Analysis ", " Analyse ")).monospace().strong(), |ui| {
                         ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
-                        if ui.button("F1 : Coupe Transversale 2D Vectorielle").clicked() {
+                        if ui.button(tr!("F1 : Coupe Transversale 2D Vectorielle", "F1: 2D Vector Cross Section", "F1: 2D-Vektorschnitt")).clicked() {
                             self.vue_active = ActiveView::Coupe2D;
                             ui.close();
                         }
                         if ui
-                            .button("F2 : Projection 3D Isométrique Filaire & Solide")
+                            .button(tr!("F2 : Projection 3D Isométrique Filaire & Solide", "F2: 3D Isometric Wireframe & Solid View", "F2: Isometrische 3D-Draht- & Volumenansicht"))
                             .clicked()
                         {
                             self.vue_active = ActiveView::Filaire3D;
                             ui.close();
                         }
                         if ui
-                            .button("F3 : Spot Diagram Polychromatique & Airy")
+                            .button(tr!("F3 : Spot Diagram Polychromatique & Airy", "F3: Polychromatic Spot Diagram & Airy", "F3: Polychromatisches Spotdiagramm & Airy"))
                             .clicked()
                         {
                             self.vue_active = ActiveView::SpotDiagram;
                             ui.close();
                         }
                         if ui
-                            .button("F4 : Aberration Sphérique Longitudinale (LSA)")
+                            .button(tr!("F4 : Aberration Sphérique Longitudinale (LSA)", "F4: Longitudinal Spherical Aberration (LSA)", "F4: Longitudinale sphärische Aberration (LSA)"))
                             .clicked()
                         {
                             self.vue_active = ActiveView::AberrationSpherique;
                             ui.close();
                         }
-                        if ui.button("F5 : Catalogue de Verres Optiques").clicked() {
+                        if ui.button(tr!("F5 : Catalogue de Verres Optiques", "F5: Optical Glass Catalogue", "F5: Optischer Glaskatalog")).clicked() {
                             self.vue_active = ActiveView::CatalogueVerres;
                             ui.close();
                         }
                     });
 
-                    ui.menu_button(RichText::new(" Outils ").monospace().strong(), |ui| {
+                    ui.menu_button(RichText::new(tr!(" Outils ", " Tools ", " Werkzeuge ")).monospace().strong(), |ui| {
                         ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
                         if ui
-                            .button("Optimiser le système (Damped Least Squares - DLS)")
+                            .button(tr!("Optimiser le système (Damped Least Squares - DLS)", "Optimize the system (Damped Least Squares - DLS)", "System optimieren (Damped Least Squares - DLS)"))
                             .clicked()
                         {
                             self.optimiser_dls();
                             ui.close();
                         }
                         if ui
-                            .button("Mise au point paraxiale automatique (Tirage BFL)")
+                            .button(tr!("Mise au point paraxiale automatique (Tirage BFL)", "Automatic paraxial focus (BFL)", "Automatische paraxiale Fokussierung (Schnittweite BFL)"))
                             .clicked()
                         {
                             self.mise_au_point_paraxiale();
                             ui.close();
                         }
                         ui.separator();
-                        if ui.button("Rechercher une mise à jour…").clicked() {
+                        if ui.button(tr!("Rechercher une mise à jour…", "Check for updates…", "Nach Updates suchen…")).clicked() {
                             self.rechercher_mise_a_jour(&ctx);
                             ui.close();
                         }
                     });
 
+                    ui.menu_button(
+                        RichText::new(tr!(" Langue ", " Language ", " Sprache ")).monospace().strong(),
+                        |ui| {
+                            ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
+                            for l in Langue::TOUTES {
+                                if ui
+                                    .radio(i18n::langue() == l, l.nom_natif())
+                                    .clicked()
+                                {
+                                    self.changer_langue(&ctx, l);
+                                    ui.close();
+                                }
+                            }
+                        },
+                    );
+
                     ui.separator();
                     // Boutons d'accès direct aux vues et préréglages dans la barre supérieure
                     for (vue, label) in [
-                        (ActiveView::Coupe2D, " [F1] Coupe 2D "),
-                        (ActiveView::Filaire3D, " [F2] Vue 3D "),
-                        (ActiveView::SpotDiagram, " [F3] Spot Diagram "),
-                        (ActiveView::AberrationSpherique, " [F4] Aberr. Sphérique "),
-                        (ActiveView::CatalogueVerres, " [F5] Verres "),
+                        (ActiveView::Coupe2D, tr!(" [F1] Coupe 2D ", " [F1] 2D Section ", " [F1] 2D-Schnitt ")),
+                        (ActiveView::Filaire3D, tr!(" [F2] Vue 3D ", " [F2] 3D View ", " [F2] 3D-Ansicht ")),
+                        (ActiveView::SpotDiagram, tr!(" [F3] Spot Diagram ", " [F3] Spot Diagram ", " [F3] Spotdiagramm ")),
+                        (ActiveView::AberrationSpherique, tr!(" [F4] Aberr. Sphérique ", " [F4] Spher. Aberr. ", " [F4] Sphär. Aberr. ")),
+                        (ActiveView::CatalogueVerres, tr!(" [F5] Verres ", " [F5] Glasses ", " [F5] Gläser ")),
                     ] {
                         let actif = self.vue_active == vue;
                         let btn = egui::Button::new(
@@ -927,7 +982,7 @@ impl eframe::App for FreeOpticalGuiApp {
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new(" Optimiser DLS ")
+                                RichText::new(tr!(" Optimiser DLS ", " Optimize DLS ", " DLS optimieren "))
                                     .monospace()
                                     .strong()
                                     .color(COL_DOS_GREEN),
@@ -954,8 +1009,8 @@ impl eframe::App for FreeOpticalGuiApp {
                     let maj_disponible =
                         matches!(self.etat_maj, EtatMaj::Disponible(_) | EtatMaj::Installee(_));
                     let libelle = match &self.etat_maj {
-                        EtatMaj::Disponible(v) => format!(" ⬆ Mise à jour v{} ", v.version),
-                        _ => " Mise à jour ".to_string(),
+                        EtatMaj::Disponible(v) => trf!(" ⬆ Mise à jour v{} ", " ⬆ Update v{} ", " ⬆ Update v{} ", v.version),
+                        _ => tr!(" Mise à jour ", " Update ", " Update ").to_string(),
                     };
                     if ui
                         .add(
@@ -968,7 +1023,7 @@ impl eframe::App for FreeOpticalGuiApp {
                                 Color32::from_rgb(0, 80, 110)
                             }),
                         )
-                        .on_hover_text("Rechercher et installer la dernière version publiée sur GitHub")
+                        .on_hover_text(tr!("Rechercher et installer la dernière version publiée sur GitHub", "Find and install the latest version published on GitHub", "Neueste auf GitHub veröffentlichte Version suchen und installieren"))
                         .clicked()
                     {
                         self.rechercher_mise_a_jour(&ctx);
@@ -977,7 +1032,7 @@ impl eframe::App for FreeOpticalGuiApp {
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(
-                                " Souris: Glisser=Pivoter/Déplacer | Molette=Zoom | Clic LDE=Éditer ",
+                                tr!(" Souris: Glisser=Pivoter/Déplacer | Molette=Zoom | Clic LDE=Éditer ", " Mouse: Drag=Rotate/Pan | Wheel=Zoom | Click LDE=Edit ", " Maus: Ziehen=Drehen/Verschieben | Rad=Zoom | Klick LDE=Bearbeiten "),
                             )
                             .monospace()
                             .strong()
@@ -1085,25 +1140,25 @@ fn cadre_dos(ui: &mut egui::Ui, titre: &str, contenu: impl FnOnce(&mut egui::Ui)
 impl FreeOpticalGuiApp {
     fn dessiner_lde_interactif(&mut self, ui: &mut egui::Ui) {
         let mut modifie = false;
-        let titre = format!(
-            "ÉDITEUR DE DONNÉES DE LENTILLES (LDE) — {}",
+        let titre = trf!(
+            "ÉDITEUR DE DONNÉES DE LENTILLES (LDE) — {}", "LENS DATA EDITOR (LDE) — {}", "LINSENDATEN-EDITOR (LDE) — {}",
             self.systeme.nom
         );
 
         cadre_dos(ui, &titre, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("+ Insérer Surface").clicked() {
+                if ui.button(tr!("+ Insérer Surface", "+ Insert Surface", "+ Fläche einfügen")).clicked() {
                     let mut s =
                         Surface::nouvelle(SurfaceType::Spherique, 100.0, 5.0, "BK7", 15.0);
-                    s.commentaire = "Nouvelle Surface".to_string();
+                    s.commentaire = tr!("Nouvelle Surface", "New Surface", "Neue Fläche").to_string();
                     let idx = self.ligne_selectionnee.min(self.systeme.surfaces.len());
                     self.systeme.surfaces.insert(idx, s);
                     modifie = true;
                 }
-                if ui.button("- Supprimer Surface").clicked() {
+                if ui.button(tr!("- Supprimer Surface", "- Delete Surface", "- Fläche löschen")).clicked() {
                     self.supprimer_surface_selectionnee();
                 }
-                if ui.button("Définir STOP").clicked() {
+                if ui.button(tr!("Définir STOP", "Set STOP", "STOP setzen")).clicked() {
                     for (i, s) in self.systeme.surfaces.iter_mut().enumerate() {
                         s.est_diaphragme = i == self.ligne_selectionnee;
                     }
@@ -1119,7 +1174,7 @@ impl FreeOpticalGuiApp {
             if let Some(surf) = self.systeme.surfaces.get_mut(idx_sel) {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        RichText::new(format!("Asphérique surf. #{:02} :", idx_sel + 1))
+                        RichText::new(trf!("Asphérique surf. #{:02} :", "Aspheric surf. #{:02}:", "Asphäre Fl. #{:02}:", idx_sel + 1))
                             .monospace()
                             .strong()
                             .color(COL_DOS_YELLOW),
@@ -1145,8 +1200,8 @@ impl FreeOpticalGuiApp {
                                             .map(|a| a * echelle)
                                     }),
                             )
-                            .on_hover_text(format!(
-                                "Coefficient {} (terme en r^{}) en mm^-{}.\nGlisser : 0,1 µm de flèche au bord par pixel.\nCliquer pour saisir (ex. 2.1e-7).\nFlèche ajoutée au bord : {:+.4} µm",
+                            .on_hover_text(trf!(
+                                "Coefficient {} (terme en r^{}) en mm^-{}.\nGlisser : 0,1 µm de flèche au bord par pixel.\nCliquer pour saisir (ex. 2.1e-7).\nFlèche ajoutée au bord : {:+.4} µm", "Coefficient {} (r^{} term) in mm^-{}.\nDrag: 0.1 µm of edge sag per pixel.\nClick to type a value (e.g. 2.1e-7).\nSag added at the edge: {:+.4} µm", "Koeffizient {} (Term in r^{}) in mm^-{}.\nZiehen: 0,1 µm Pfeilhöhe am Rand pro Pixel.\nKlicken zur Eingabe (z. B. 2.1e-7).\nZusätzliche Pfeilhöhe am Rand: {:+.4} µm",
                                 nom,
                                 puissance,
                                 puissance - 1,
@@ -1163,7 +1218,7 @@ impl FreeOpticalGuiApp {
                     }
                     if surf.type_surface != SurfaceType::Aspherique {
                         ui.label(
-                            RichText::new("(inactifs : modifier un coefficient passe en ASPHERIQUE)")
+                            RichText::new(tr!("(inactifs : modifier un coefficient passe en ASPHERIQUE)", "(inactive: changing a coefficient switches to ASPHERIC)", "(inaktiv: Ändern eines Koeffizienten schaltet auf ASPHÄRISCH)"))
                                 .monospace()
                                 .color(COL_DOS_GRAY),
                         );
@@ -1181,13 +1236,13 @@ impl FreeOpticalGuiApp {
                             // En-têtes
                             for h in [
                                 "Surf#",
-                                "Type",
-                                "Commentaire",
-                                "Rayon (mm)",
-                                "Épaisseur",
-                                "Verre",
-                                "Demi-Diam.",
-                                "Conique k",
+                                tr!("Type", "Type", "Typ"),
+                                tr!("Commentaire", "Comment", "Kommentar"),
+                                tr!("Rayon (mm)", "Radius (mm)", "Radius (mm)"),
+                                tr!("Épaisseur", "Thickness", "Dicke"),
+                                tr!("Verre", "Glass", "Glas"),
+                                tr!("Demi-Diam.", "Semi-Diam.", "Halbdurchm."),
+                                tr!("Conique k", "Conic k", "Konik k"),
                             ] {
                                 ui.label(
                                     RichText::new(h)
@@ -1282,11 +1337,11 @@ impl FreeOpticalGuiApp {
                                 {
                                     if ui
                                         .button(
-                                            RichText::new("  INFINI  ")
+                                            RichText::new(tr!("  INFINI  ", "  INFINITY  ", "  UNENDLICH  "))
                                                 .monospace()
                                                 .color(COL_DOS_GRAY),
                                         )
-                                        .on_hover_text("Cliquer pour passer en rayon fini (100 mm)")
+                                        .on_hover_text(tr!("Cliquer pour passer en rayon fini (100 mm)", "Click to switch to a finite radius (100 mm)", "Klicken für einen endlichen Radius (100 mm)"))
                                         .clicked()
                                     {
                                         surf.type_surface = SurfaceType::Spherique;
@@ -1388,12 +1443,12 @@ impl FreeOpticalGuiApp {
         let s = &self.spot;
         let lsa = &self.lsa;
 
-        cadre_dos(ui, "BILAN OPTIQUE, PARAXIAL & ABERRATIONS", |ui| {
+        cadre_dos(ui, tr!("BILAN OPTIQUE, PARAXIAL & ABERRATIONS", "OPTICAL, PARAXIAL & ABERRATION SUMMARY", "OPTISCHE, PARAXIALE & ABERRATIONSÜBERSICHT"), |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("grille_bilan_paraxial")
                     .spacing([18.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label(RichText::new("Longueur d'onde λ réf :").monospace());
+                        ui.label(RichText::new(tr!("Longueur d'onde λ réf :", "Reference wavelength λ:", "Referenzwellenlänge λ :")).monospace());
                         ui.label(
                             RichText::new(format!("{:.2} nm", self.systeme.longueur_onde_ref_nm))
                                 .monospace()
@@ -1403,7 +1458,7 @@ impl FreeOpticalGuiApp {
 
                         ui.end_row();
 
-                        ui.label(RichText::new("Pupille d'Entrée (ENPD):").monospace());
+                        ui.label(RichText::new(tr!("Pupille d'Entrée (ENPD):", "Entrance pupil (ENPD) :", "Eintrittspup. (ENPD)  :")).monospace());
                         ui.label(
                             RichText::new(format!("Ø {:.2} mm", p.diametre_pupille_entree_mm))
                                 .monospace()
@@ -1411,12 +1466,12 @@ impl FreeOpticalGuiApp {
                         );
                         ui.end_row();
 
-                        ui.label(RichText::new("Focale Effective (EFFL):").monospace());
+                        ui.label(RichText::new(tr!("Focale Effective (EFFL):", "Effective focal (EFFL):", "Eff. Brennweite (EFFL):")).monospace());
                         ui.label(
                             RichText::new(if p.focale_effl_mm.is_finite() {
                                 format!("{:.3} mm", p.focale_effl_mm)
                             } else {
-                                "INFINIE (Afocal)".to_string()
+                                tr!("INFINIE (Afocal)", "INFINITE (Afocal)", "UNENDLICH (afokal)").to_string()
                             })
                             .monospace()
                             .strong()
@@ -1425,7 +1480,7 @@ impl FreeOpticalGuiApp {
 
                         ui.end_row();
 
-                        ui.label(RichText::new("Pupille de Sortie (EXPD):").monospace());
+                        ui.label(RichText::new(tr!("Pupille de Sortie (EXPD):", "Exit pupil (EXPD)     :", "Austrittspup. (EXPD)  :")).monospace());
                         ui.label(
                             RichText::new(format!("Ø {:.2} mm", p.diametre_pupille_sortie_mm))
                                 .monospace()
@@ -1433,12 +1488,12 @@ impl FreeOpticalGuiApp {
                         );
                         ui.end_row();
 
-                        ui.label(RichText::new("Tirage Paraxial (BFL)  :").monospace());
+                        ui.label(RichText::new(tr!("Tirage Paraxial (BFL)  :", "Paraxial back focus BFL:", "Parax. Schnittw. (BFL):")).monospace());
                         ui.label(
                             RichText::new(if p.tirage_bfl_mm.is_finite() {
                                 format!("{:.3} mm", p.tirage_bfl_mm)
                             } else {
-                                "INFINI".to_string()
+                                tr!("INFINI", "INFINITY", "UNENDLICH").to_string()
                             })
                             .monospace()
                             .color(COL_DOS_WHITE),
@@ -1446,7 +1501,7 @@ impl FreeOpticalGuiApp {
 
                         ui.end_row();
 
-                        ui.label(RichText::new("Ouverture F/# & NA     :").monospace());
+                        ui.label(RichText::new(tr!("Ouverture F/# & NA     :", "Aperture F/# & NA      :", "Öffnung F/# & NA       :")).monospace());
                         ui.label(
                             RichText::new(if p.focale_effl_mm.is_finite() {
                                 format!(
@@ -1461,7 +1516,7 @@ impl FreeOpticalGuiApp {
                         );
                         ui.end_row();
 
-                        ui.label(RichText::new("Rayon Spot RMS (Image) :").monospace());
+                        ui.label(RichText::new(tr!("Rayon Spot RMS (Image) :", "RMS spot radius (image):", "RMS-Spotradius (Bild)  :")).monospace());
                         ui.label(
                             RichText::new(format!("{:.2} µm", s.rayon_rms_um))
                                 .monospace()
@@ -1471,7 +1526,7 @@ impl FreeOpticalGuiApp {
 
                         ui.end_row();
 
-                        ui.label(RichText::new("Rayon Disque d'Airy    :").monospace());
+                        ui.label(RichText::new(tr!("Rayon Disque d'Airy    :", "Airy disk radius       :", "Radius Airy-Scheibchen :")).monospace());
                         ui.label(
                             RichText::new(if s.rayon_airy_um > 0.0 {
                                 format!("{:.2} µm", s.rayon_airy_um)
@@ -1484,7 +1539,7 @@ impl FreeOpticalGuiApp {
                         );
                         ui.end_row();
 
-                        ui.label(RichText::new("Aberr. Sphérique (LSA) :").monospace());
+                        ui.label(RichText::new(tr!("Aberr. Sphérique (LSA) :", "Spherical aberr. (LSA) :", "Sphär. Aberration (LSA):")).monospace());
                         ui.label(
                             RichText::new(format!("ΔZ = {:.4} mm", lsa.lsa_max_mm))
                                 .monospace()
@@ -1493,7 +1548,7 @@ impl FreeOpticalGuiApp {
 
                         ui.end_row();
 
-                        ui.label(RichText::new("Longueur Totale Système:").monospace());
+                        ui.label(RichText::new(tr!("Longueur Totale Système:", "Total system length    :", "Gesamtlänge des Systems:")).monospace());
                         ui.label(
                             RichText::new(format!("{:.2} mm", p.longueur_totale_mm))
                                 .monospace()
@@ -1505,24 +1560,24 @@ impl FreeOpticalGuiApp {
                 ui.add_space(6.0);
                 let diffraction_ok = s.rayon_rms_um <= s.rayon_airy_um && s.rayon_airy_um > 0.0;
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("Diagnostic :").monospace());
+                    ui.label(RichText::new(tr!("Diagnostic :", "Diagnosis:", "Diagnose:")).monospace());
                     if !p.focale_effl_mm.is_finite() {
                         ui.label(
-                            RichText::new("AFOCAL : ajoutez des surfaces")
+                            RichText::new(tr!("AFOCAL : ajoutez des surfaces", "AFOCAL: add surfaces", "AFOKAL: Flächen hinzufügen"))
                                 .monospace()
                                 .strong()
                                 .color(COL_DOS_CYAN),
                         );
                     } else if diffraction_ok {
                         ui.label(
-                            RichText::new("[OK] LIMITÉ PAR LA DIFFRACTION")
+                            RichText::new(tr!("[OK] LIMITÉ PAR LA DIFFRACTION", "[OK] DIFFRACTION LIMITED", "[OK] BEUGUNGSBEGRENZT"))
                                 .monospace()
                                 .strong()
                                 .color(COL_DOS_GREEN),
                         );
                     } else {
                         ui.label(
-                            RichText::new("[!] LIMITÉ PAR LES ABERRATIONS")
+                            RichText::new(tr!("[!] LIMITÉ PAR LES ABERRATIONS", "[!] ABERRATION LIMITED", "[!] ABERRATIONSBEGRENZT"))
                                 .monospace()
                                 .strong()
                                 .color(COL_DOS_YELLOW),
@@ -1536,28 +1591,28 @@ impl FreeOpticalGuiApp {
     /// Dessine la coupe transversale 2D avec rendu en traits continus (lentilles, cubes séparateurs à 45°, rayons)
     fn dessiner_canevas_2d(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Rayons :").monospace());
+            ui.label(RichText::new(tr!("Rayons :", "Rays:", "Strahlen:")).monospace());
             ui.add(egui::Slider::new(&mut self.nb_rayons_2d, 3..=25));
             ui.separator();
-            if ui.button("Réinitialiser Vue").clicked() {
+            if ui.button(tr!("Réinitialiser Vue", "Reset View", "Ansicht zurücksetzen")).clicked() {
                 self.zoom = 1.0;
                 self.pan_offset = Vec2::ZERO;
             }
             // Légende limitée à ce que le système affiche réellement
             let sys = &self.systeme;
-            let mut legende = vec!["Cyan = Champ sur l'axe".to_string()];
+            let mut legende = vec![tr!("Cyan = Champ sur l'axe", "Cyan = On-axis field", "Cyan = Feld auf der Achse").to_string()];
             if sys.champs_deg.len() > 1 && sys.champs_deg[1].1.abs() > 0.01 {
-                legende.push(format!("Vert = Champ {:.1}°", sys.champs_deg[1].1));
+                legende.push(trf!("Vert = Champ {:.1}°", "Green = Field {:.1}°", "Grün = Feld {:.1}°", sys.champs_deg[1].1));
             }
             if sys.surfaces.iter().any(|surf| est_cube_separateur(sys, surf)) {
-                legende.push("Orange = Réfléchis 90° (Cube 50/50)".to_string());
-                legende.push("Magenta = Lame 45° / Miroir".to_string());
+                legende.push(tr!("Orange = Réfléchis 90° (Cube 50/50)", "Orange = Reflected 90° (50/50 cube)", "Orange = 90° reflektiert (50/50-Cube)").to_string());
+                legende.push(tr!("Magenta = Lame 45° / Miroir", "Magenta = 45° plate / Mirror", "Magenta = 45°-Platte / Spiegel").to_string());
             } else if sys
                 .surfaces
                 .iter()
                 .any(|surf| sys.catalogue.resoudre(&surf.verre).est_miroir())
             {
-                legende.push("Magenta = Miroir".to_string());
+                legende.push(tr!("Magenta = Miroir", "Magenta = Mirror", "Magenta = Spiegel").to_string());
             }
             ui.label(
                 RichText::new(format!("  [{}]", legende.join(" | ")))
@@ -1711,7 +1766,7 @@ impl FreeOpticalGuiApp {
                         painter.text(
                             centre_cube,
                             Align2::CENTER_TOP,
-                            "CUBE SÉPARATEUR 50/50",
+                            tr!("CUBE SÉPARATEUR 50/50", "50/50 BEAM SPLITTER CUBE", "50/50-STRAHLTEILER-CUBE"),
                             FontId::new(11.5, FontFamily::Monospace),
                             COL_DOS_YELLOW,
                         );
@@ -1724,7 +1779,7 @@ impl FreeOpticalGuiApp {
                         painter.text(
                             Pos2::new(0.5 * (m_g.x + m_d.x), m_g.y - 5.0),
                             Align2::CENTER_BOTTOM,
-                            "FAISCEAU RÉFLÉCHI 90° (50%)",
+                            tr!("FAISCEAU RÉFLÉCHI 90° (50%)", "BEAM REFLECTED 90° (50%)", "UM 90° REFLEKTIERTES BÜNDEL (50%)"),
                             FontId::new(11.0, FontFamily::Monospace),
                             COL_DOS_ORANGE,
                         );
@@ -1816,18 +1871,18 @@ impl FreeOpticalGuiApp {
     /// Dessine la projection 3D isométrique filaire en traits continus (orientable à la souris)
     fn dessiner_canevas_3d(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Lacet (Yaw) :").monospace());
+            ui.label(RichText::new(tr!("Lacet (Yaw) :", "Yaw:", "Gieren:")).monospace());
             ui.add(egui::Slider::new(&mut self.yaw_3d_deg, -180.0..=180.0).suffix("°"));
-            ui.label(RichText::new("Tangage (Pitch) :").monospace());
+            ui.label(RichText::new(tr!("Tangage (Pitch) :", "Pitch:", "Nicken:")).monospace());
             ui.add(egui::Slider::new(&mut self.pitch_3d_deg, -85.0..=85.0).suffix("°"));
-            if ui.button("Réinitialiser Angle 3D").clicked() {
+            if ui.button(tr!("Réinitialiser Angle 3D", "Reset 3D Angle", "3D-Winkel zurücksetzen")).clicked() {
                 self.yaw_3d_deg = 32.0;
                 self.pitch_3d_deg = 20.0;
                 self.zoom = 1.0;
             }
             if self.systeme.surfaces.iter().any(|surf| est_cube_separateur(&self.systeme, surf)) {
                 ui.label(
-                    RichText::new("  (Cyan = Transmis | Orange = Réfléchis 90° Cube 50/50)")
+                    RichText::new(tr!("  (Cyan = Transmis | Orange = Réfléchis 90° Cube 50/50)", "  (Cyan = Transmitted | Orange = Reflected 90° 50/50 cube)", "  (Cyan = Durchgelassen | Orange = 90° reflektiert 50/50-Cube)"))
                         .monospace()
                         .color(COL_DOS_YELLOW),
                 );
@@ -2016,8 +2071,8 @@ impl FreeOpticalGuiApp {
         let spot = &self.spot;
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                RichText::new(format!(
-                    "Rayons transmis : {}  |  Rayon RMS = {:.2} µm  |  Rayon GEO = {:.2} µm  |  Disque d'Airy (jaune) = {:.2} µm",
+                RichText::new(trf!(
+                    "Rayons transmis : {}  |  Rayon RMS = {:.2} µm  |  Rayon GEO = {:.2} µm  |  Disque d'Airy (jaune) = {:.2} µm", "Rays transmitted: {}  |  RMS radius = {:.2} µm  |  GEO radius = {:.2} µm  |  Airy disk (yellow) = {:.2} µm", "Durchgelassene Strahlen: {}  |  RMS-Radius = {:.2} µm  |  GEO-Radius = {:.2} µm  |  Airy-Scheibchen (gelb) = {:.2} µm",
                     spot.nb_rayons_valides, spot.rayon_rms_um, spot.rayon_geo_um, spot.rayon_airy_um
                 ))
                 .monospace()
@@ -2078,8 +2133,8 @@ impl FreeOpticalGuiApp {
         let lsa = &self.lsa;
         ui.horizontal_wrapped(|ui| {
             ui.label(
-                RichText::new(format!(
-                    "Aberration Sphérique Longitudinale Crête-à-Crête (LSA) = {:.4} mm   [Axe Horizontal : ΔZ (mm) | Axe Vertical : Hauteur Pupille Py]",
+                RichText::new(trf!(
+                    "Aberration Sphérique Longitudinale Crête-à-Crête (LSA) = {:.4} mm   [Axe Horizontal : ΔZ (mm) | Axe Vertical : Hauteur Pupille Py]", "Peak-to-valley Longitudinal Spherical Aberration (LSA) = {:.4} mm   [Horizontal axis: ΔZ (mm) | Vertical axis: pupil height Py]", "Longitudinale sphärische Aberration Spitze-Tal (LSA) = {:.4} mm   [Horizontale Achse: ΔZ (mm) | Vertikale Achse: Pupillenhöhe Py]",
                     lsa.lsa_max_mm
                 ))
                 .monospace()
@@ -2137,11 +2192,11 @@ impl FreeOpticalGuiApp {
                 .spacing([24.0, 6.0])
                 .show(ui, |ui| {
                     for h in [
-                        "Matériau",
-                        "Indice nd (587.6 nm)",
-                        "Nombre d'Abbe Vd",
-                        "Indice nF (486.1 nm)",
-                        "Indice nC (656.3 nm)",
+                        tr!("Matériau", "Material", "Material"),
+                        tr!("Indice nd (587.6 nm)", "Index nd (587.6 nm)", "Index nd (587.6 nm)"),
+                        tr!("Nombre d'Abbe Vd", "Abbe number Vd", "Abbe-Zahl Vd"),
+                        tr!("Indice nF (486.1 nm)", "Index nF (486.1 nm)", "Index nF (486.1 nm)"),
+                        tr!("Indice nC (656.3 nm)", "Index nC (656.3 nm)", "Index nC (656.3 nm)"),
                     ] {
                         ui.label(
                             RichText::new(h)
@@ -2192,24 +2247,24 @@ fn sauvegarder_systeme(sys: &OpticalSystem) -> String {
         .map(|d| d.join(FICHIER_SYSTEME).display().to_string())
         .unwrap_or_else(|_| FICHIER_SYSTEME.to_string());
     match resultat {
-        Ok(()) => format!("Système sauvegardé dans '{}'.", chemin),
-        Err(e) => format!("ÉCHEC de la sauvegarde dans '{}' : {}", chemin, e),
+        Ok(()) => trf!("Système sauvegardé dans '{}'.", "System saved to '{}'.", "System in '{}' gespeichert.", chemin),
+        Err(e) => trf!("ÉCHEC de la sauvegarde dans '{}' : {}", "FAILED to save to '{}': {}", "FEHLER beim Speichern in '{}': {}", chemin, e),
     }
 }
 
 /// Relit `systeme_optique.json` depuis le répertoire courant
 fn charger_systeme_fichier() -> Result<(OpticalSystem, String), String> {
     let contenu = std::fs::read_to_string(FICHIER_SYSTEME)
-        .map_err(|e| format!("Lecture de '{}' impossible : {}", FICHIER_SYSTEME, e))?;
+        .map_err(|e| trf!("Lecture de '{}' impossible : {}", "Cannot read '{}': {}", "'{}' kann nicht gelesen werden: {}", FICHIER_SYSTEME, e))?;
     let sys = serde_json::from_str::<OpticalSystem>(&contenu)
-        .map_err(|e| format!("Fichier '{}' invalide : {}", FICHIER_SYSTEME, e))?;
+        .map_err(|e| trf!("Fichier '{}' invalide : {}", "Invalid file '{}': {}", "Ungültige Datei '{}': {}", FICHIER_SYSTEME, e))?;
     if sys.surfaces.len() < 2 {
-        return Err(format!(
-            "Fichier '{}' invalide : il faut au moins une surface et un plan image.",
+        return Err(trf!(
+            "Fichier '{}' invalide : il faut au moins une surface et un plan image.", "Invalid file '{}': at least one surface and an image plane are required.", "Ungültige Datei '{}': mindestens eine Fläche und eine Bildebene sind nötig.",
             FICHIER_SYSTEME
         ));
     }
-    let msg = format!("Système '{}' rechargé depuis '{}'.", sys.nom, FICHIER_SYSTEME);
+    let msg = trf!("Système '{}' rechargé depuis '{}'.", "System '{}' reloaded from '{}'.", "System '{}' aus '{}' neu geladen.", sys.nom, FICHIER_SYSTEME);
     Ok((sys, msg))
 }
 

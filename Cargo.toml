@@ -1,6 +1,6 @@
 [package]
 name = "freeoptical"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["Jean-Baptiste"]
 description = "Logiciel open-source de conception et de simulation optique séquentielle (interface graphique, TUI et serveur MCP)"

@@ -200,11 +200,11 @@ pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
         };
         let legende = Paragraph::new(Line::from(vec![
             Span::styled("── ", Style::default().fg(DOS_CYAN)),
-            Span::styled("Rayons 0°  ", Style::default().fg(DOS_WHITE)),
+            Span::styled(tr!("Rayons 0°  ", "Rays 0°  ", "Strahlen 0°  "), Style::default().fg(DOS_WHITE)),
             Span::styled("── ", Style::default().fg(DOS_GREEN)),
-            Span::styled("Champ hors-axe  ", Style::default().fg(DOS_WHITE)),
+            Span::styled(tr!("Champ hors-axe  ", "Off-axis field  ", "Feld außeraxial  "), Style::default().fg(DOS_WHITE)),
             Span::styled("── ", Style::default().fg(DOS_YELLOW)),
-            Span::styled("Surface active (LDE)", Style::default().fg(DOS_WHITE)),
+            Span::styled(tr!("Surface active (LDE)", "Active surface (LDE)", "Aktive Fläche (LDE)"), Style::default().fg(DOS_WHITE)),
         ]));
         f.render_widget(legende, legende_rect);
     }

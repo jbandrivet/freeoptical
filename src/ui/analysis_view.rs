@@ -102,48 +102,48 @@ pub fn dessiner_spot_diagram(f: &mut Frame, zone: Rect, app: &AppState) {
 
     let texte_stats = vec![
         Line::from(Span::styled(
-            "MÉTRIQUES SPOT DIAGRAM",
+            tr!("MÉTRIQUES SPOT DIAGRAM", "SPOT DIAGRAM METRICS", "SPOTDIAGRAMM-KENNWERTE"),
             Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
         )),
         Line::from("──────────────────────────────"),
         Line::from(vec![
-            Span::styled("Rayons transmis : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Rayons transmis : ", "Rays transmitted: ", "Durchgel. Strahl: "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("{}", spot.nb_rayons_valides),
                 Style::default().fg(DOS_WHITE).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Centroïde (X,Y) : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Centroïde (X,Y) : ", "Centroid (X,Y)  : ", "Schwerpunkt X,Y : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("({:.3}, {:.3}) mm", cx, cy),
                 Style::default().fg(DOS_WHITE),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Rayon RMS       : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Rayon RMS       : ", "RMS radius      : ", "RMS-Radius      : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("{:.2} µm ({:.4} mm)", spot.rayon_rms_um, spot.rayon_rms_mm),
                 Style::default().fg(DOS_GREEN).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Rayon GEO Max   : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Rayon GEO Max   : ", "GEO max radius  : ", "GEO max. Radius : "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("{:.2} µm", spot.rayon_geo_um), Style::default().fg(DOS_CYAN)),
         ]),
         Line::from(vec![
-            Span::styled("Rayon d'Airy    : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Rayon d'Airy    : ", "Airy radius     : ", "Airy-Radius     : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("{:.2} µm", spot.rayon_airy_um),
                 Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Ratio RMS/Airy  : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Ratio RMS/Airy  : ", "RMS/Airy ratio  : ", "Verh. RMS/Airy  : "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("{:.2}x", ratio_airy), Style::default().fg(DOS_WHITE)),
         ]),
         Line::from(vec![
-            Span::styled("Échelle Graphe  : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Échelle Graphe  : ", "Plot scale      : ", "Diagrammmaßstab : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("±{:.1} µm", demi_echelle * 1000.0),
                 Style::default().fg(DOS_TEXT),
@@ -151,16 +151,16 @@ pub fn dessiner_spot_diagram(f: &mut Frame, zone: Rect, app: &AppState) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            "LÉGENDE SPECTRALE :",
+            tr!("LÉGENDE SPECTRALE :", "SPECTRAL LEGEND:", "SPEKTRALLEGENDE:"),
             Style::default().fg(DOS_YELLOW),
         )),
-        Line::from(Span::styled(" • Cyan  : Raie F (486.1 nm)", Style::default().fg(DOS_CYAN))),
-        Line::from(Span::styled(" • Vert  : Raie d (587.6 nm)", Style::default().fg(DOS_GREEN))),
-        Line::from(Span::styled(" • Rouge : Raie C (656.3 nm)", Style::default().fg(DOS_RED))),
-        Line::from(Span::styled(" ○ Jaune : Disque d'Airy", Style::default().fg(DOS_YELLOW))),
+        Line::from(Span::styled(tr!(" • Cyan  : Raie F (486.1 nm)", " • Cyan  : F line (486.1 nm)", " • Cyan  : F-Linie (486.1 nm)"), Style::default().fg(DOS_CYAN))),
+        Line::from(Span::styled(tr!(" • Vert  : Raie d (587.6 nm)", " • Green : d line (587.6 nm)", " • Grün  : d-Linie (587.6 nm)"), Style::default().fg(DOS_GREEN))),
+        Line::from(Span::styled(tr!(" • Rouge : Raie C (656.3 nm)", " • Red   : C line (656.3 nm)", " • Rot   : C-Linie (656.3 nm)"), Style::default().fg(DOS_RED))),
+        Line::from(Span::styled(tr!(" ○ Jaune : Disque d'Airy", " ○ Yellow: Airy disk", " ○ Gelb  : Airy-Scheibchen"), Style::default().fg(DOS_YELLOW))),
     ];
 
-    let bloc_stats = bloc_dos("STATISTIQUES IMAGE", false);
+    let bloc_stats = bloc_dos(tr!("STATISTIQUES IMAGE", "IMAGE STATISTICS", "BILDSTATISTIK"), false);
     f.render_widget(Paragraph::new(texte_stats).block(bloc_stats), decoupe[1]);
 }
 
@@ -232,23 +232,23 @@ pub fn dessiner_aberration_spherique(f: &mut Frame, zone: Rect, app: &AppState) 
 
     let mut lignes_table = vec![
         Line::from(Span::styled(
-            "ABERRATION SPHÉRIQUE (LSA)",
+            tr!("ABERRATION SPHÉRIQUE (LSA)", "SPHERICAL ABERRATION (LSA)", "SPHÄRISCHE ABERRATION (LSA)"),
             Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled("LSA Crête-à-Crête : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("LSA Crête-à-Crête : ", "Peak-to-valley LSA: ", "LSA Spitze-Tal    : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("{:.4} mm", lsa.lsa_max_mm),
                 Style::default().fg(DOS_GREEN).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Échelle ΔZ        : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Échelle ΔZ        : ", "ΔZ scale          : ", "ΔZ-Maßstab        : "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("±{:.3} mm", max_dz), Style::default().fg(DOS_WHITE)),
         ]),
         Line::from("──────────────────────────────"),
         Line::from(Span::styled(
-            "  Pupille Py   │   ΔZ (λ réf) ",
+            tr!("  Pupille Py   │   ΔZ (λ réf) ", "  Pupil Py     │   ΔZ (λ ref) ", "  Pupille Py   │   ΔZ (λ Ref) "),
             Style::default().fg(DOS_CYAN).add_modifier(Modifier::BOLD),
         )),
     ];
@@ -266,6 +266,6 @@ pub fn dessiner_aberration_spherique(f: &mut Frame, zone: Rect, app: &AppState) 
         ]));
     }
 
-    let bloc_lsa = bloc_dos("TABLEAU LSA (ΔZ)", false);
+    let bloc_lsa = bloc_dos(tr!("TABLEAU LSA (ΔZ)", "LSA TABLE (ΔZ)", "LSA-TABELLE (ΔZ)"), false);
     f.render_widget(Paragraph::new(lignes_table).block(bloc_lsa), decoupe[1]);
 }

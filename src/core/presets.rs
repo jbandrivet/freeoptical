@@ -8,27 +8,27 @@ use crate::core::types::{ApertureSpec, OpticalSystem, Surface, SurfaceType, Wave
 /// Le spot diagram au plan image montre l'aberration du miroir testé à son centre de courbure.
 pub fn creer_interferometre_bath() -> OpticalSystem {
     let mut s0 = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 12.7, "BK7", 6.35);
-    s0.commentaire = "Entrée Cube Séparateur 50/50 (BK7)".to_string();
+    s0.commentaire = tr!("Entrée Cube Séparateur 50/50 (BK7)", "Beam Splitter Cube 50/50 Entrance (BK7)", "Strahlteiler-Cube 50/50 Eintritt (BK7)").to_string();
     s0.est_diaphragme = true;
 
     let mut s1 = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 8.0, "AIR", 6.35);
-    s1.commentaire = "Sortie Cube Séparateur".to_string();
+    s1.commentaire = tr!("Sortie Cube Séparateur", "Beam Splitter Cube Exit", "Strahlteiler-Cube Austritt").to_string();
 
     let mut s2 = Surface::nouvelle(SurfaceType::Spherique, 12.0, 3.0, "BK7", 4.0);
-    s2.commentaire = "Entrée Lentille de Bath (BK7)".to_string();
+    s2.commentaire = tr!("Entrée Lentille de Bath (BK7)", "Bath Lens Entrance (BK7)", "Bath-Linse Eintritt (BK7)").to_string();
 
     let mut s3 = Surface::nouvelle(SurfaceType::Spherique, -12.0, 311.1309, "AIR", 4.0);
-    s3.commentaire = "Sortie Lentille de Bath".to_string();
+    s3.commentaire = tr!("Sortie Lentille de Bath", "Bath Lens Exit", "Bath-Linse Austritt").to_string();
 
     let mut s4 = Surface::nouvelle(SurfaceType::Conique, -300.0, -300.0, "MIROIR", 26.0);
-    s4.commentaire = "Miroir Sous Test Ø52 R300 (parabolique)".to_string();
+    s4.commentaire = tr!("Miroir Sous Test Ø52 R300 (parabolique)", "Mirror Under Test Ø52 R300 (parabolic)", "Prüfspiegel Ø52 R300 (parabolisch)").to_string();
     s4.conique = -1.0;
 
     let mut s5 = Surface::plan_image(3.0);
-    s5.commentaire = "Foyer de Retour (Centre de Courbure)".to_string();
+    s5.commentaire = tr!("Foyer de Retour (Centre de Courbure)", "Return Focus (Centre of Curvature)", "Rückkehrfokus (Krümmungsmittelpunkt)").to_string();
 
     OpticalSystem {
-        nom: "Interféromètre de Bath (Laser He-Ne 632.8 nm)".to_string(),
+        nom: tr!("Interféromètre de Bath (Laser He-Ne 632.8 nm)", "Bath Interferometer (He-Ne Laser 632.8 nm)", "Bath-Interferometer (He-Ne-Laser 632.8 nm)").to_string(),
         longueur_onde_ref_nm: 632.8,
         longueurs_onde: vec![Wavelength::new(632.8, 1.0, "He-Ne (632.8 nm)")],
         ouverture: ApertureSpec::PupilleEntreeMm(1.9),
@@ -41,19 +41,19 @@ pub fn creer_interferometre_bath() -> OpticalSystem {
 /// Singlet F/2 dont la face d'entrée est un ellipsoïde/hyperboloïde corrigeant l'aberration sphérique
 pub fn creer_singlet_aspherique() -> OpticalSystem {
     let mut s1 = Surface::nouvelle(SurfaceType::Aspherique, 42.1287, 8.0, "LAK9", 16.0);
-    s1.commentaire = "Entrée Asphérique (LAK9)".to_string();
+    s1.commentaire = tr!("Entrée Asphérique (LAK9)", "Aspheric Entrance (LAK9)", "Asphärischer Eintritt (LAK9)").to_string();
     s1.conique = -1.3244;
     s1.est_diaphragme = true;
 
     let mut s2 = Surface::nouvelle(SurfaceType::Spherique, -180.0, 46.2868, "AIR", 16.0);
-    s2.commentaire = "Sortie Sphérique".to_string();
+    s2.commentaire = tr!("Sortie Sphérique", "Spherical Exit", "Sphärischer Austritt").to_string();
 
     let s3 = Surface::plan_image(15.0);
 
     OpticalSystem {
-        nom: "Singlet Asphérique F/2 (LAK9)".to_string(),
+        nom: tr!("Singlet Asphérique F/2 (LAK9)", "Aspheric Singlet F/2 (LAK9)", "Asphärische Einzellinse F/2 (LAK9)").to_string(),
         longueur_onde_ref_nm: LAMBDA_D_NM,
-        longueurs_onde: vec![Wavelength::new(LAMBDA_D_NM, 1.0, "Raie d (587.6 nm)")],
+        longueurs_onde: vec![Wavelength::new(LAMBDA_D_NM, 1.0, tr!("Raie d (587.6 nm)", "d line (587.6 nm)", "d-Linie (587.6 nm)"))],
         ouverture: ApertureSpec::PupilleEntreeMm(25.0),
         champs_deg: vec![(0.0, 0.0)],
         surfaces: vec![s1, s2, s3],
@@ -65,18 +65,18 @@ pub fn creer_singlet_aspherique() -> OpticalSystem {
 /// foyer 33 mm derrière le primaire
 pub fn creer_telescope_cassegrain() -> OpticalSystem {
     let mut s1 = Surface::nouvelle(SurfaceType::Conique, -160.0, -55.0, "MIROIR", 22.0);
-    s1.commentaire = "Miroir Primaire Concave".to_string();
+    s1.commentaire = tr!("Miroir Primaire Concave", "Concave Primary Mirror", "Konkaver Hauptspiegel").to_string();
     s1.conique = -1.0; // Paraboloïde
     s1.est_diaphragme = true;
 
     let mut s2 = Surface::nouvelle(SurfaceType::Conique, -65.0, 108.3333, "MIROIR", 10.0);
-    s2.commentaire = "Miroir Secondaire Convexe".to_string();
+    s2.commentaire = tr!("Miroir Secondaire Convexe", "Convex Secondary Mirror", "Konvexer Fangspiegel").to_string();
     s2.conique = -2.56; // Hyperboloïde, grandissement m = 4.33
 
     let s3 = Surface::plan_image(12.0);
 
     OpticalSystem {
-        nom: "Télescope Réflecteur Cassegrain".to_string(),
+        nom: tr!("Télescope Réflecteur Cassegrain", "Cassegrain Reflecting Telescope", "Cassegrain-Spiegelteleskop").to_string(),
         longueur_onde_ref_nm: LAMBDA_D_NM,
         longueurs_onde: Wavelength::visible_fdc(),
         ouverture: ApertureSpec::PupilleEntreeMm(36.0),

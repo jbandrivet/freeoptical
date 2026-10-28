@@ -1,10 +1,17 @@
 [Desktop Entry]
 Name=FreeOptical
-Comment=Logiciel de conception et de simulation optique séquentielle (GUI Autonome & MCP)
+GenericName=Conception optique
+GenericName[fr]=Conception optique
+GenericName[en]=Optical design
+GenericName[de]=Optikdesign
+Comment=Logiciel de conception et de simulation optique séquentielle
+Comment[fr]=Logiciel de conception et de simulation optique séquentielle
+Comment[en]=Sequential optical design and simulation software
+Comment[de]=Software für sequentielles Optikdesign und Simulation
 Exec=freeoptical
 Icon=freeoptical
 StartupWMClass=freeoptical
 Terminal=false
 Type=Application
 Categories=Science;Physics;Engineering;
-Keywords=optics;raytracing;zemax;lens;mcp;
+Keywords=optics;raytracing;zemax;lens;mcp;optique;lentille;télescope;Optik;Linse;Teleskop;

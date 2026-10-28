@@ -31,9 +31,9 @@ impl Wavelength {
     /// Triplet trichromatique standard Fraunhofer (F, d, C) dans le visible
     pub fn visible_fdc() -> Vec<Self> {
         vec![
-            Self::new(LAMBDA_F_NM, 1.0, "F (Bleu 486.1 nm)"),
-            Self::new(LAMBDA_D_NM, 1.0, "d (Jaune 587.6 nm)"),
-            Self::new(LAMBDA_C_NM, 1.0, "C (Rouge 656.3 nm)"),
+            Self::new(LAMBDA_F_NM, 1.0, tr!("F (Bleu 486.1 nm)", "F (Blue 486.1 nm)", "F (Blau 486.1 nm)")),
+            Self::new(LAMBDA_D_NM, 1.0, tr!("d (Jaune 587.6 nm)", "d (Yellow 587.6 nm)", "d (Gelb 587.6 nm)")),
+            Self::new(LAMBDA_C_NM, 1.0, tr!("C (Rouge 656.3 nm)", "C (Red 656.3 nm)", "C (Rot 656.3 nm)")),
         ]
     }
 }
@@ -72,18 +72,20 @@ pub enum SurfaceType {
 impl SurfaceType {
     pub fn libelle_court(&self) -> &'static str {
         match self {
-            SurfaceType::Plane => "PLANE",
-            SurfaceType::Spherique => "SPHERIQUE",
-            SurfaceType::Conique => "CONIQUE",
-            SurfaceType::Aspherique => "ASPHERIQUE",
+            SurfaceType::Plane => tr!("PLANE", "FLAT", "PLAN"),
+            SurfaceType::Spherique => tr!("SPHERIQUE", "SPHERICAL", "SPHÄRISCH"),
+            SurfaceType::Conique => tr!("CONIQUE", "CONIC", "KONISCH"),
+            SurfaceType::Aspherique => tr!("ASPHERIQUE", "ASPHERIC", "ASPHÄRISCH"),
         }
     }
 
     pub fn depuis_chaine(s: &str) -> Self {
         match s.trim().to_uppercase().as_str() {
             "PLANE" | "PLAN" | "FLAT" => SurfaceType::Plane,
-            "CONIQUE" | "CONIC" => SurfaceType::Conique,
-            "ASPHERIQUE" | "ASPHERIC" | "EVEN_ASPHERE" => SurfaceType::Aspherique,
+            "CONIQUE" | "CONIC" | "KONISCH" => SurfaceType::Conique,
+            "ASPHERIQUE" | "ASPHERIC" | "EVEN_ASPHERE" | "ASPHÄRISCH" | "ASPHAERISCH" => {
+                SurfaceType::Aspherique
+            }
             _ => SurfaceType::Spherique,
         }
     }
@@ -192,7 +194,7 @@ impl Surface {
     /// Crée un plan image (détecteur / écran d'observation)
     pub fn plan_image(semi_diametre: f64) -> Self {
         let mut s = Self::nouvelle(SurfaceType::Plane, f64::INFINITY, 0.0, "AIR", semi_diametre);
-        s.commentaire = "Plan Image".to_string();
+        s.commentaire = tr!("Plan Image", "Image Plane", "Bildebene").to_string();
         s
     }
 
@@ -357,7 +359,7 @@ impl OpticalSystem {
     /// Crée un nouveau système optique vierge (avec une surface pupille et un plan image)
     pub fn nouveau(nom: impl Into<String>, longueur_onde_ref_nm: f64) -> Self {
         let mut stop = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 50.0, "AIR", 12.5);
-        stop.commentaire = "Pupille / Entrée".to_string();
+        stop.commentaire = tr!("Pupille / Entrée", "Pupil / Entrance", "Pupille / Eintritt").to_string();
         stop.est_diaphragme = true;
 
         let image = Surface::plan_image(15.0);
@@ -377,19 +379,19 @@ impl OpticalSystem {
     /// (achromatisé F-C et corrigé de l'aberration sphérique : spot RMS ≈ disque d'Airy)
     pub fn doublet_achromatique_defaut() -> Self {
         let mut s1 = Surface::nouvelle(SurfaceType::Spherique, 45.4439, 7.0, "BK7", 15.0);
-        s1.commentaire = "Entrée Crown (BK7)".to_string();
+        s1.commentaire = tr!("Entrée Crown (BK7)", "Crown Entrance (BK7)", "Krone Eintritt (BK7)").to_string();
         s1.est_diaphragme = true;
 
         let mut s2 = Surface::nouvelle(SurfaceType::Spherique, -43.7259, 2.5, "F2", 15.0);
-        s2.commentaire = "Interface Collage (F2)".to_string();
+        s2.commentaire = tr!("Interface Collage (F2)", "Cemented Interface (F2)", "Kittfläche (F2)").to_string();
 
         let mut s3 = Surface::nouvelle(SurfaceType::Spherique, -708.9172, 93.6852, "AIR", 15.0);
-        s3.commentaire = "Sortie Flint".to_string();
+        s3.commentaire = tr!("Sortie Flint", "Flint Exit", "Flint Austritt").to_string();
 
         let s4 = Surface::plan_image(15.0);
 
         Self {
-            nom: "Doublet Achromatique Fraunhofer 100mm".to_string(),
+            nom: tr!("Doublet Achromatique Fraunhofer 100mm", "Fraunhofer Achromatic Doublet 100mm", "Fraunhofer-Achromat 100mm").to_string(),
             longueur_onde_ref_nm: LAMBDA_D_NM,
             longueurs_onde: Wavelength::visible_fdc(),
             ouverture: ApertureSpec::PupilleEntreeMm(24.0),

@@ -67,19 +67,19 @@ pub fn rechercher() -> Result<Option<VersionDisponible>, String> {
         .get(API_DERNIERE_RELEASE)
         .header("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("GitHub injoignable : {e}"))?
+        .map_err(|e| trf!("GitHub injoignable : {e}", "GitHub unreachable: {e}", "GitHub nicht erreichbar: {e}"))?
         .body_mut()
         .read_to_string()
-        .map_err(|e| format!("Réponse GitHub illisible : {e}"))?;
+        .map_err(|e| trf!("Réponse GitHub illisible : {e}", "Unreadable GitHub response: {e}", "Unlesbare GitHub-Antwort: {e}"))?;
     analyser_release(&texte, VERSION_COURANTE)
 }
 
 fn analyser_release(json: &str, locale: &str) -> Result<Option<VersionDisponible>, String> {
     let release: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| format!("Réponse GitHub invalide : {e}"))?;
+        serde_json::from_str(json).map_err(|e| trf!("Réponse GitHub invalide : {e}", "Invalid GitHub response: {e}", "Ungültige GitHub-Antwort: {e}"))?;
     let tag = release["tag_name"]
         .as_str()
-        .ok_or("Réponse GitHub sans numéro de version")?;
+        .ok_or(tr!("Réponse GitHub sans numéro de version", "GitHub response without a version number", "GitHub-Antwort ohne Versionsnummer"))?;
     if !est_plus_recente(tag, locale) {
         return Ok(None);
     }
@@ -111,12 +111,12 @@ pub fn telecharger(paquet: &PaquetDeb) -> Result<PathBuf, String> {
     let octets = agent()
         .get(&paquet.url)
         .call()
-        .map_err(|e| format!("Téléchargement impossible : {e}"))?
+        .map_err(|e| trf!("Téléchargement impossible : {e}", "Download failed: {e}", "Download fehlgeschlagen: {e}"))?
         .body_mut()
         .with_config()
         .limit(TAILLE_MAX_DEB)
         .read_to_vec()
-        .map_err(|e| format!("Téléchargement interrompu : {e}"))?;
+        .map_err(|e| trf!("Téléchargement interrompu : {e}", "Download interrupted: {e}", "Download unterbrochen: {e}"))?;
 
     let dossier = std::env::temp_dir().join("freeoptical-maj");
     std::fs::create_dir_all(&dossier).map_err(|e| format!("{}: {e}", dossier.display()))?;
@@ -134,13 +134,13 @@ pub fn telecharger(paquet: &PaquetDeb) -> Result<PathBuf, String> {
         let sortie = Command::new("sha256sum")
             .arg(&chemin)
             .output()
-            .map_err(|e| format!("sha256sum introuvable : {e}"))?;
+            .map_err(|e| trf!("sha256sum introuvable : {e}", "sha256sum not found: {e}", "sha256sum nicht gefunden: {e}"))?;
         let obtenu = String::from_utf8_lossy(&sortie.stdout);
         let obtenu = obtenu.split_whitespace().next().unwrap_or("");
         if !obtenu.eq_ignore_ascii_case(attendu) {
             let _ = std::fs::remove_file(&chemin);
-            return Err(format!(
-                "Paquet corrompu (SHA-256 {obtenu} au lieu de {attendu}), installation annulée."
+            return Err(trf!(
+                "Paquet corrompu (SHA-256 {obtenu} au lieu de {attendu}), installation annulée.", "Corrupted package (SHA-256 {obtenu} instead of {attendu}), installation cancelled.", "Beschädigtes Paket (SHA-256 {obtenu} statt {attendu}), Installation abgebrochen."
             ));
         }
     }
@@ -154,22 +154,22 @@ pub fn installer(chemin: &Path) -> Result<(), String> {
         .args(["install", "-y"])
         .arg(chemin)
         .output()
-        .map_err(|e| format!("pkexec impossible à lancer : {e}"))?;
+        .map_err(|e| trf!("pkexec impossible à lancer : {e}", "Cannot start pkexec: {e}", "pkexec kann nicht gestartet werden: {e}"))?;
     if sortie.status.success() {
         let _ = std::fs::remove_file(chemin);
         return Ok(());
     }
     // pkexec : 126 = authentification refusée ou annulée, 127 = non autorisé
     match sortie.status.code() {
-        Some(126) | Some(127) => Err("Installation annulée (mot de passe non fourni).".to_string()),
+        Some(126) | Some(127) => Err(tr!("Installation annulée (mot de passe non fourni).", "Installation cancelled (no password given).", "Installation abgebrochen (kein Passwort eingegeben).").to_string()),
         _ => {
             let erreur = String::from_utf8_lossy(&sortie.stderr);
             let derniere = erreur
                 .lines()
                 .rev()
                 .find(|l| !l.trim().is_empty())
-                .unwrap_or("erreur inconnue");
-            Err(format!("Échec de l'installation : {derniere}"))
+                .unwrap_or(tr!("erreur inconnue", "unknown error", "unbekannter Fehler"));
+            Err(trf!("Échec de l'installation : {derniere}", "Installation failed: {derniere}", "Installation fehlgeschlagen: {derniere}"))
         }
     }
 }
@@ -185,7 +185,7 @@ pub fn relancer() -> Result<(), String> {
         .args(std::env::args_os().skip(1))
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("Relance impossible : {e}"))
+        .map_err(|e| trf!("Relance impossible : {e}", "Cannot restart: {e}", "Neustart nicht möglich: {e}"))
 }
 
 #[cfg(test)]

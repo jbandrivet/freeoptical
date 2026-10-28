@@ -312,8 +312,8 @@ pub fn optimiser_systeme_dls(
         iterations: iter_realisees,
         focale_finale_mm: paraxial_final.focale_effl_mm,
         spot_rms_final_um: spot_final.rayon_rms_um,
-        resume: format!(
-            "DLS terminé en {} itérations : Mérite {:.4e} -> {:.4e} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
+        resume: trf!(
+            "DLS terminé en {} itérations : Mérite {:.4e} -> {:.4e} | EFFL = {:.2} mm | Spot RMS = {:.2} µm", "DLS finished in {} iterations: merit {:.4e} -> {:.4e} | EFFL = {:.2} mm | Spot RMS = {:.2} µm", "DLS nach {} Iterationen beendet: Gütefunktion {:.4e} -> {:.4e} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
             iter_realisees,
             merite_initial,
             merite_courant,

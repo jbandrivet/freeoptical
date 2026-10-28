@@ -14,15 +14,17 @@ use ratatui::{
 };
 
 /// Noms des colonnes de l'Éditeur de Données de Lentilles (LDE)
-pub const COLONNES_LDE: [&str; 7] = [
-    "Type",
-    "Commentaire",
-    "Rayon (mm)",
-    "Épaisseur (mm)",
-    "Verre",
-    "Demi-Diam. (mm)",
-    "Conique (k)",
-];
+pub fn colonnes_lde() -> [&'static str; 7] {
+    [
+        tr!("Type", "Type", "Typ"),
+        tr!("Commentaire", "Comment", "Kommentar"),
+        tr!("Rayon (mm)", "Radius (mm)", "Radius (mm)"),
+        tr!("Épaisseur (mm)", "Thickness (mm)", "Dicke (mm)"),
+        tr!("Verre", "Glass", "Glas"),
+        tr!("Demi-Diam. (mm)", "Semi-Diam. (mm)", "Halbdurchm. (mm)"),
+        tr!("Conique (k)", "Conic (k)", "Konik (k)"),
+    ]
+}
 
 /// Affiche l'Éditeur de Données de Lentilles (LDE) et le panneau récapitulatif paraxial à droite
 pub fn dessiner_editeur_lentilles(f: &mut Frame, zone: Rect, app: &AppState) {
@@ -39,7 +41,7 @@ fn dessiner_tableau_lde(f: &mut Frame, zone: Rect, app: &AppState) {
     let mut cellules_entete = vec![
         Cell::from("Surf#").style(style_entete_tableau()),
     ];
-    for (col_idx, titre) in COLONNES_LDE.iter().enumerate() {
+    for (col_idx, titre) in colonnes_lde().iter().enumerate() {
         let style = if col_idx == app.colonne_selectionnee {
             style_entete_tableau().fg(DOS_CYAN)
         } else {
@@ -65,7 +67,7 @@ fn dessiner_tableau_lde(f: &mut Frame, zone: Rect, app: &AppState) {
         };
 
         let rayon_str = if !surf.rayon.is_finite() || surf.rayon.abs() > 1e8 {
-            "INFINI".to_string()
+            tr!("INFINI", "INFINITY", "UNENDLICH").to_string()
         } else {
             format!("{:>10.3}", surf.rayon)
         };
@@ -121,8 +123,8 @@ fn dessiner_tableau_lde(f: &mut Frame, zone: Rect, app: &AppState) {
         lignes.push(Row::new(cellules).height(1));
     }
 
-    let titre_lde = format!(
-        "ÉDITEUR DE DONNÉES DE LENTILLES (LDE) - {}",
+    let titre_lde = trf!(
+        "ÉDITEUR DE DONNÉES DE LENTILLES (LDE) - {}", "LENS DATA EDITOR (LDE) - {}", "LINSENDATEN-EDITOR (LDE) - {}",
         app.systeme.nom
     );
 
@@ -153,45 +155,45 @@ fn dessiner_panneau_paraxial(f: &mut Frame, zone: Rect, app: &AppState) {
     let focale_txt = if p.focale_effl_mm.is_finite() {
         format!("{:.3} mm", p.focale_effl_mm)
     } else {
-        "INFINIE (Afocal)".to_string()
+        tr!("INFINIE (Afocal)", "INFINITE (Afocal)", "UNENDLICH (afokal)").to_string()
     };
 
     let bfl_txt = if p.tirage_bfl_mm.is_finite() {
         format!("{:.3} mm", p.tirage_bfl_mm)
     } else {
-        "INFINI".to_string()
+        tr!("INFINI", "INFINITY", "UNENDLICH").to_string()
     };
 
     let qualite_diffraction = if s.rayon_rms_um <= s.rayon_airy_um && s.rayon_airy_um > 0.0 {
         Span::styled(
-            "LIMITÉ PAR LA DIFFRACTION",
+            tr!("LIMITÉ PAR LA DIFFRACTION", "DIFFRACTION LIMITED", "BEUGUNGSBEGRENZT"),
             Style::default().fg(DOS_GREEN).add_modifier(Modifier::BOLD),
         )
     } else {
         Span::styled(
-            "LIMITÉ PAR LES ABERRATIONS",
+            tr!("LIMITÉ PAR LES ABERRATIONS", "ABERRATION LIMITED", "ABERRATIONSBEGRENZT"),
             Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
         )
     };
 
     let lignes = vec![
         Line::from(vec![
-            Span::styled("λ Réf.       : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("λ Réf.       : ", "λ Ref.       : ", "λ Ref.       : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("{:.2} nm", app.systeme.longueur_onde_ref_nm),
                 Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("Focale (EFFL): ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Focale (EFFL): ", "Focal (EFFL) : ", "Brennw.(EFFL): "), Style::default().fg(DOS_TEXT)),
             Span::styled(focale_txt, Style::default().fg(DOS_CYAN).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![
-            Span::styled("Tirage (BFL) : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Tirage (BFL) : ", "Back foc.BFL : ", "Schnittw.BFL : "), Style::default().fg(DOS_TEXT)),
             Span::styled(bfl_txt, Style::default().fg(DOS_WHITE)),
         ]),
         Line::from(vec![
-            Span::styled("Ouverture F/#: ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Ouverture F/#: ", "Aperture F/# : ", "Öffnung F/#  : "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("F/{:.2}", p.nombre_ouverture_fnum), Style::default().fg(DOS_WHITE)),
             Span::styled(
                 format!(" (NA={:.3})", p.ouverture_numerique_image),
@@ -199,15 +201,15 @@ fn dessiner_panneau_paraxial(f: &mut Frame, zone: Rect, app: &AppState) {
             ),
         ]),
         Line::from(vec![
-            Span::styled("Pup. Entrée  : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Pup. Entrée  : ", "Entr. pupil  : ", "Eintr.pup.   : "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("Ø {:.2} mm", p.diametre_pupille_entree_mm), Style::default().fg(DOS_WHITE)),
         ]),
         Line::from(vec![
-            Span::styled("Pup. Sortie  : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Pup. Sortie  : ", "Exit pupil   : ", "Austr.pup.   : "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("Ø {:.2} mm", p.diametre_pupille_sortie_mm), Style::default().fg(DOS_WHITE)),
         ]),
         Line::from(vec![
-            Span::styled("Spot RMS     : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Spot RMS     : ", "Spot RMS     : ", "Spot RMS     : "), Style::default().fg(DOS_TEXT)),
             Span::styled(
                 format!("{:.2} µm", s.rayon_rms_um),
                 Style::default().fg(DOS_GREEN).add_modifier(Modifier::BOLD),
@@ -218,15 +220,15 @@ fn dessiner_panneau_paraxial(f: &mut Frame, zone: Rect, app: &AppState) {
             ),
         ]),
         Line::from(vec![
-            Span::styled("Aberr. Sphér.: ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Aberr. Sphér.: ", "Spher. aberr.: ", "Sphär. Aberr.: "), Style::default().fg(DOS_TEXT)),
             Span::styled(format!("ΔZ = {:.3} mm", lsa.lsa_max_mm), Style::default().fg(DOS_WHITE)),
         ]),
         Line::from(vec![
-            Span::styled("Diagnostic   : ", Style::default().fg(DOS_TEXT)),
+            Span::styled(tr!("Diagnostic   : ", "Diagnosis    : ", "Diagnose     : "), Style::default().fg(DOS_TEXT)),
             qualite_diffraction,
         ]),
     ];
 
-    let para = Paragraph::new(lignes).block(bloc_dos("BILAN OPTIQUE & PARAXIAL", false));
+    let para = Paragraph::new(lignes).block(bloc_dos(tr!("BILAN OPTIQUE & PARAXIAL", "OPTICAL & PARAXIAL SUMMARY", "OPTISCHE & PARAXIALE ÜBERSICHT"), false));
     f.render_widget(para, zone);
 }

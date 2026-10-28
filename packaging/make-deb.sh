@@ -17,6 +17,8 @@ for taille in 48 64 128 256 512; do
         "$ROOT/usr/share/icons/hicolor/${taille}x${taille}/apps/freeoptical.png"
 done
 install -Dm644 README.md "$ROOT/usr/share/doc/freeoptical/README.md"
+install -Dm644 README.en.md "$ROOT/usr/share/doc/freeoptical/README.en.md"
+install -Dm644 README.de.md "$ROOT/usr/share/doc/freeoptical/README.de.md"
 install -Dm644 LICENSE-MIT "$ROOT/usr/share/doc/freeoptical/LICENSE-MIT"
 install -Dm644 LICENSE-APACHE "$ROOT/usr/share/doc/freeoptical/LICENSE-APACHE"
 cat > "$ROOT/usr/share/doc/freeoptical/copyright" <<COPYRIGHT

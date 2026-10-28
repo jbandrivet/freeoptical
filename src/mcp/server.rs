@@ -13,7 +13,7 @@ use rmcp::{
     handler::server::wrapper::Parameters,
     schemars::{self, JsonSchema},
     serde::{Deserialize, Serialize},
-    tool, tool_router,
+    tool, tool_handler, tool_router,
 };
 use std::sync::{Arc, Mutex};
 
@@ -108,8 +108,8 @@ pub struct OptimisationOutput {
 }
 
 fn avertissement_verre(verre: &str) -> String {
-    format!(
-        "Verre '{}' inconnu : il est traité comme de l'AIR. Utiliser un nom du catalogue (BK7, F2, SF11, SILICE...), MIROIR, ou la syntaxe 'nd:Vd'.",
+    trf!(
+        "Verre '{}' inconnu : il est traité comme de l'AIR. Utiliser un nom du catalogue (BK7, F2, SF11, SILICE...), MIROIR, ou la syntaxe 'nd:Vd'.", "Unknown glass '{}': it is treated as AIR. Use a catalogue name (BK7, F2, SF11, SILICE...), MIROIR, or the 'nd:Vd' syntax.", "Unbekanntes Glas '{}': es wird als Luft (AIR) behandelt. Einen Katalognamen (BK7, F2, SF11, SILICE...), MIROIR oder die Syntax 'nd:Vd' verwenden.",
         verre
     )
 }
@@ -128,7 +128,69 @@ impl FreeOpticalMcpServer {
     }
 }
 
-#[tool_router(server_handler)]
+/// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 7] = [
+    (
+        "creer_systeme",
+        "Creates a new sequential optical system with its name and reference wavelength (in nm).",
+        "Legt ein neues sequentielles optisches System mit Namen und Referenzwellenlänge (in nm) an.",
+    ),
+    (
+        "ajouter_surface",
+        "Adds an optical surface (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE) with its radius, thickness, glass and semi-diameter.",
+        "Fügt eine optische Fläche (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE) mit Radius, Dicke, Glas und Halbdurchmesser hinzu.",
+    ),
+    (
+        "modifier_surface",
+        "Modifies the properties (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques) of an existing surface.",
+        "Ändert die Eigenschaften (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques) einer vorhandenen Fläche.",
+    ),
+    (
+        "importer_teloptik",
+        "Imports a .TDS (TDESIGN), .RLD (LENSDES) or .DES (RAYTRACE) file from the programs of the book \"Telescope Optics\" by Rutten and van Venrooij and makes it the current system. Returns the system, its paraxial data, the focal length written in the file and the items not imported (obstructions, extra colours…). Tilted or decentered systems are refused.",
+        "Importiert eine .TDS- (TDESIGN), .RLD- (LENSDES) oder .DES-Datei (RAYTRACE) der Programme aus dem Buch „Telescope Optics“ von Rutten und van Venrooij als aktuelles System. Gibt das System, seine paraxialen Daten, die in der Datei stehende Brennweite und die nicht übernommenen Elemente (Obstruktionen, zusätzliche Farben…) zurück. Gekippte oder dezentrierte Systeme werden abgelehnt.",
+    ),
+    (
+        "lancer_simulation",
+        "Runs the sequential ray trace and returns the raw data: paraxial parameters, 3D ray paths and longitudinal spherical aberration.",
+        "Führt die sequentielle Strahlverfolgung aus und gibt die Rohdaten zurück: paraxiale Parameter, 3D-Strahlwege und longitudinale sphärische Aberration.",
+    ),
+    (
+        "obtenir_spot_diagram",
+        "Returns the image plane hit coordinates, the centroid, the RMS radius (µm and mm), the maximum geometric radius and the Airy radius.",
+        "Gibt die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius (µm und mm), den maximalen geometrischen Radius und den Airy-Radius zurück.",
+    ),
+    (
+        "optimiser_systeme",
+        "Runs the Damped Least Squares optimizer (DLS / Levenberg-Marquardt) on the selected variables to reach a focal length or minimize the RMS spot / spherical aberration.",
+        "Startet die Optimierung nach Damped Least Squares (DLS / Levenberg-Marquardt) mit den gewählten Variablen, um eine Brennweite zu erreichen oder den RMS-Spot / die sphärische Aberration zu minimieren.",
+    ),
+];
+
+impl FreeOpticalMcpServer {
+    /// Outils MCP avec leurs descriptions dans la langue courante
+    pub fn routeur_traduit() -> rmcp::handler::server::router::tool::ToolRouter<Self> {
+        let mut routeur = Self::routeur_outils();
+        for (nom, en, de) in DESCRIPTIONS_OUTILS {
+            if let Some(route) = routeur.map.get_mut(nom) {
+                if let Some(fr) = route.attr.description.clone() {
+                    let texte = match crate::i18n::langue() {
+                        crate::i18n::Langue::Fr => fr,
+                        crate::i18n::Langue::En => en.into(),
+                        crate::i18n::Langue::De => de.into(),
+                    };
+                    route.attr.description = Some(texte);
+                }
+            }
+        }
+        routeur
+    }
+}
+
+#[tool_handler(router = Self::routeur_traduit())]
+impl rmcp::ServerHandler for FreeOpticalMcpServer {}
+
+#[tool_router(router = routeur_outils)]
 impl FreeOpticalMcpServer {
     /// Initialise un nouveau design optique avec son nom et sa longueur d'onde de référence (en nm).
     #[tool(
@@ -172,7 +234,7 @@ impl FreeOpticalMcpServer {
         if sys.surfaces.len() <= 1 {
             surf.est_diaphragme = true;
         }
-        surf.commentaire = format!("Surface {}", sys.surfaces.len());
+        surf.commentaire = trf!("Surface {}", "Surface {}", "Fläche {}", sys.surfaces.len());
 
         // Insère juste avant le Plan Image final
         let pos_insertion = sys.surfaces.len().saturating_sub(1);
@@ -182,7 +244,7 @@ impl FreeOpticalMcpServer {
 
         let paraxial = calculer_paraxial(&sys);
         let mut reponse = serde_json::json!({
-            "statut": "Surface ajoutée avec succès",
+            "statut": tr!("Surface ajoutée avec succès", "Surface added", "Fläche hinzugefügt"),
             "index_insere": pos_insertion,
             "nb_surfaces": sys.surfaces.len(),
             "paraxial": paraxial,
@@ -206,7 +268,7 @@ impl FreeOpticalMcpServer {
         let nb = sys.surfaces.len();
         let Some(surf) = sys.surfaces.get_mut(params.index) else {
             return serde_json::json!({
-                "erreur": format!("Index de surface {} hors limites (0..{})", params.index, nb.saturating_sub(1))
+                "erreur": trf!("Index de surface {} hors limites (0..{})", "Surface index {} out of range (0..{})", "Flächenindex {} außerhalb des Bereichs (0..{})", params.index, nb.saturating_sub(1))
             })
             .to_string();
         };
@@ -255,7 +317,7 @@ impl FreeOpticalMcpServer {
         let surf_maj = surf.clone();
         let paraxial = calculer_paraxial(&sys);
         let mut reponse = serde_json::json!({
-            "statut": "Surface modifiée avec succès",
+            "statut": tr!("Surface modifiée avec succès", "Surface modified", "Fläche geändert"),
             "index": params.index,
             "surface": surf_maj,
             "paraxial": paraxial,
@@ -345,6 +407,15 @@ impl FreeOpticalMcpServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptions_traduites_pour_chaque_outil() {
+        let routeur = FreeOpticalMcpServer::routeur_outils();
+        assert_eq!(routeur.map.len(), DESCRIPTIONS_OUTILS.len());
+        for (nom, _, _) in DESCRIPTIONS_OUTILS {
+            assert!(routeur.map.contains_key(nom), "outil {nom} absent");
+        }
+    }
 
     #[tokio::test]
     async fn test_outils_mcp_workflow_complet() {

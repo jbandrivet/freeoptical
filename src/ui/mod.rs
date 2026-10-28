@@ -1,4 +1,4 @@
-//! Module UI : Interface Terminal (TUI) rétro style MS-DOS en français avec `ratatui`.
+//! Module UI : Interface Terminal (TUI) style MS-DOS avec `ratatui`, en français, anglais ou allemand.
 
 pub mod analysis_view;
 pub mod app;
@@ -11,7 +11,7 @@ use crate::{
     core::types::OpticalSystem,
     ui::{
         analysis_view::{dessiner_aberration_spherique, dessiner_spot_diagram},
-        app::{ActiveView, AppState, ITEMS_MENUS, TITRES_MENUS},
+        app::{ActiveView, AppState, items_menu, titres_menus},
         lde::dessiner_editeur_lentilles,
         theme::{
             DOS_BAR_BG, DOS_BAR_FG, DOS_CYAN, DOS_MODAL_BG, DOS_TEXT, DOS_WHITE,
@@ -99,16 +99,20 @@ pub fn dessiner_interface(f: &mut Frame, app: &AppState) {
     }
 }
 
+fn bandeau_version() -> String {
+    format!(" ◄ FREEOPTICAL v{} ► ", crate::maj::VERSION_COURANTE)
+}
+
 fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
     let mut spans = vec![Span::styled(
-        format!(" ◄ FREEOPTICAL DOS v{} ► ", crate::maj::VERSION_COURANTE),
+        bandeau_version(),
         Style::default()
             .bg(Color::Rgb(0, 128, 128))
             .fg(DOS_WHITE)
             .add_modifier(Modifier::BOLD),
     )];
 
-    for (idx, titre) in TITRES_MENUS.iter().enumerate() {
+    for (idx, titre) in titres_menus().iter().enumerate() {
         let est_actif = app.menu_ouvert == Some(idx);
         let style = if est_actif {
             style_menu_actif()
@@ -119,7 +123,7 @@ fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
     }
 
     spans.push(Span::styled(
-        "  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Verres  F10/M:Menu]",
+        tr!("  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Verres  F10/M:Menu]", "  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Glass  F6:Lang.  F10/M:Menu]", "  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Glas  F6:Sprache  F10/M:Menü]"),
         Style::default().bg(DOS_BAR_BG).fg(Color::Rgb(60, 60, 60)),
     ));
 
@@ -144,7 +148,7 @@ fn dessiner_zone_inferieure(f: &mut Frame, zone: Rect, app: &AppState) {
 fn dessiner_catalogue_verres(f: &mut Frame, zone: Rect, app: &AppState) {
     let mut lignes = vec![
         Line::from(Span::styled(
-            "MATÉRIAU       TYPE        INDICE nd (587.6nm)   ABBE Vd     INDICE nF (486.1nm)   INDICE nC (656.3nm)",
+            tr!("MATÉRIAU       TYPE        INDICE nd (587.6nm)   ABBE Vd     INDICE nF (486.1nm)   INDICE nC (656.3nm)", "MATERIAL       TYPE        INDEX nd (587.6nm)    ABBE Vd     INDEX nF (486.1nm)    INDEX nC (656.3nm)", "MATERIAL       TYP         INDEX nd (587.6nm)    ABBE Vd     INDEX nF (486.1nm)    INDEX nC (656.3nm)"),
             Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
@@ -158,9 +162,9 @@ fn dessiner_catalogue_verres(f: &mut Frame, zone: Rect, app: &AppState) {
         let nf = mat.indice_refraction(486.1327);
         let nc = mat.indice_refraction(656.2725);
         let (type_str, vd_str) = match &mat.kind {
-            crate::core::glass::MediumKind::Air => ("Milieu", "   -    ".to_string()),
-            crate::core::glass::MediumKind::Miroir => ("Réflecteur", "   -    ".to_string()),
-            crate::core::glass::MediumKind::Verre { vd, .. } => ("Verre Opt.", format!("{:>8.2}", vd)),
+            crate::core::glass::MediumKind::Air => (tr!("Milieu", "Medium", "Medium"), "   -    ".to_string()),
+            crate::core::glass::MediumKind::Miroir => (tr!("Réflecteur", "Reflector", "Reflektor"), "   -    ".to_string()),
+            crate::core::glass::MediumKind::Verre { vd, .. } => (tr!("Verre Opt.", "Opt. glass", "Opt. Glas"), format!("{:>8.2}", vd)),
         };
         lignes.push(Line::from(vec![
             Span::styled(format!("{:<14} ", mat.nom), Style::default().fg(DOS_CYAN).add_modifier(Modifier::BOLD)),
@@ -176,7 +180,7 @@ fn dessiner_catalogue_verres(f: &mut Frame, zone: Rect, app: &AppState) {
 }
 
 fn dessiner_barre_statut(f: &mut Frame, zone: Rect, app: &AppState) {
-    let raccourcis = " Flèches:Nav | Entrée:Éditer | A:Ajouter | Suppr:Effacer | T:Type | O:Optimiser DLS | Q:Quitter ";
+    let raccourcis = tr!(" Flèches:Nav | Entrée:Éditer | A:Ajouter | Suppr:Effacer | T:Type | O:Optimiser DLS | Q:Quitter ", " Arrows:Nav | Enter:Edit | A:Add | Del:Delete | T:Type | O:Optimize DLS | F6:Language | Q:Quit ", " Pfeile:Nav | Eingabe:Bearb. | A:Neu | Entf:Löschen | T:Typ | O:DLS optim. | F6:Sprache | Q:Ende ");
     let ligne = Line::from(vec![
         Span::styled(
             raccourcis,
@@ -194,9 +198,11 @@ fn dessiner_barre_statut(f: &mut Frame, zone: Rect, app: &AppState) {
 }
 
 fn dessiner_popup_menu(f: &mut Frame, barre_haut: Rect, menu_idx: usize, item_sel: usize) {
-    let items = ITEMS_MENUS[menu_idx];
-    let x_offset = 26 + (menu_idx as u16) * 12;
-    let largeur = 46;
+    let items = items_menu(menu_idx);
+    // Le menu s'ouvre sous son titre : bandeau de version puis titres de largeur variable
+    let x_offset = (bandeau_version().chars().count()
+        + titres_menus()[..menu_idx].iter().map(|t| t.chars().count() + 4).sum::<usize>()) as u16;
+    let largeur = (items.iter().map(|t| t.chars().count()).max().unwrap_or(20) + 4) as u16;
     let hauteur = (items.len() as u16) + 2;
 
     let popup_rect = Rect {
@@ -211,7 +217,7 @@ fn dessiner_popup_menu(f: &mut Frame, barre_haut: Rect, menu_idx: usize, item_se
     let list_items: Vec<ListItem> = items
         .iter()
         .enumerate()
-        .map(|(i, &texte)| {
+        .map(|(i, texte)| {
             let style = if i == item_sel {
                 style_menu_actif()
             } else {
@@ -222,7 +228,7 @@ fn dessiner_popup_menu(f: &mut Frame, barre_haut: Rect, menu_idx: usize, item_se
         .collect();
 
     let bloc = Block::default()
-        .title(format!(" {} ", TITRES_MENUS[menu_idx]))
+        .title(format!(" {} ", titres_menus()[menu_idx]))
         .borders(Borders::ALL)
         .border_type(BorderType::Double)
         .style(Style::default().bg(DOS_MODAL_BG).fg(DOS_YELLOW));
@@ -235,7 +241,7 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
     if let Some(mut texte) = app.mode_saisie.take() {
         match code {
             KeyCode::Esc => {
-                app.statut_message = "Édition annulée.".to_string();
+                app.statut_message = tr!("Édition annulée.", "Edit cancelled.", "Bearbeitung abgebrochen.").to_string();
             }
             KeyCode::Enter => {
                 app.appliquer_saisie(&texte);
@@ -257,14 +263,14 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
 
     // 2. Navigation dans le menu supérieur déroulant s'il est ouvert
     if let Some(menu_idx) = app.menu_ouvert {
-        let nb_items = ITEMS_MENUS[menu_idx].len();
+        let nb_items = items_menu(menu_idx).len();
         match code {
             KeyCode::Esc | KeyCode::F(10) => {
                 app.menu_ouvert = None;
             }
             KeyCode::Left => {
                 let nouv = if menu_idx == 0 {
-                    TITRES_MENUS.len() - 1
+                    titres_menus().len() - 1
                 } else {
                     menu_idx - 1
                 };
@@ -272,7 +278,7 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
                 app.item_menu_selectionne = 0;
             }
             KeyCode::Right => {
-                let nouv = (menu_idx + 1) % TITRES_MENUS.len();
+                let nouv = (menu_idx + 1) % titres_menus().len();
                 app.menu_ouvert = Some(nouv);
                 app.item_menu_selectionne = 0;
             }
@@ -311,6 +317,7 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
         KeyCode::F(3) | KeyCode::Char('3') => app.vue_active = ActiveView::SpotDiagram,
         KeyCode::F(4) | KeyCode::Char('4') => app.vue_active = ActiveView::AberrationSpherique,
         KeyCode::F(5) | KeyCode::Char('5') => app.vue_active = ActiveView::CatalogueVerres,
+        KeyCode::F(6) => app.changer_langue(crate::i18n::langue().suivante()),
         KeyCode::Up => {
             if app.ligne_selectionnee > 0 {
                 app.ligne_selectionnee -= 1;
@@ -355,7 +362,7 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
         }
         KeyCode::Char('r') | KeyCode::Char('R') => {
             app.recalculer();
-            app.statut_message = "Calcul séquentiel mis à jour.".to_string();
+            app.statut_message = tr!("Calcul séquentiel mis à jour.", "Sequential computation updated.", "Sequentielle Berechnung aktualisiert.").to_string();
         }
         // Contrôles de rotation 3D (utilisés en Vue 2 : Filaire 3D)
         KeyCode::Char('h') | KeyCode::Char('H') => app.angle_3d_yaw_deg -= 5.0,

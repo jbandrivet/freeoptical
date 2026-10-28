@@ -14,6 +14,15 @@ Ouvrez une [issue « Bug »](https://github.com/jbandrivet/freeoptical/issues/ne
 
 Ouvrez une [issue « Idée »](https://github.com/jbandrivet/freeoptical/issues/new/choose), ou lancez une [discussion](https://github.com/jbandrivet/freeoptical/discussions) si l'idée mérite d'abord d'être débattue.
 
+## Traductions
+
+L'interface existe en français, en anglais et en allemand. Tout texte affiché s'écrit dans les trois langues, sur place, avec les macros de `src/i18n.rs` :
+```rust
+ui.button(tr!("Fermer", "Close", "Schließen"));
+let msg = trf!("{} surfaces", "{} surfaces", "{} Flächen", n);
+```
+Les trois chaînes de `trf!` prennent les mêmes arguments, dans le même ordre. Les corrections de traduction sont bienvenues.
+
 ## Contribuer du code
 
 1. Forkez le dépôt et créez une branche depuis `main` (`git checkout -b correction-pupille`).

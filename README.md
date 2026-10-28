@@ -4,11 +4,13 @@
 
 # FreeOptical
 
+**Français** · [English](README.en.md) · [Deutsch](README.de.md)
+
 **Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**
 
 FreeOptical permet de concevoir n'importe quel système optique (objectif, lunette, télescope à miroirs, montage de test…) surface par surface, puis de l'analyser et de l'optimiser. Il est écrit en **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) et combine :
 1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, dispersion chromatique $n_d / V_d$, spot diagram polychromatique, aberration sphérique longitudinale et optimisation Damped Least Squares.
-2. **Une interface graphique et une interface terminal (`--tui`) en français** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA et catalogue de verres. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
+2. **Une interface graphique et une interface terminal (`--tui`) en français, en anglais ou en allemand** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA et catalogue de verres. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
 3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques.
 
 ---
@@ -34,12 +36,14 @@ freeoptical
 freeoptical --fichier systeme_optique.json
 # Ou en important un fichier TDESIGN / LENSDES / RAYTRACE :
 freeoptical --fichier RITCHRET.TDS
+# Choisir la langue de l'interface :
+freeoptical --langue fr
 ```
 
-#### Raccourcis clavier dans l'interface :
+#### Raccourcis clavier dans l'interface terminal :
 - **`Flèches` / `Tab`** : Naviguer dans l'Éditeur de Données de Lentilles (LDE)
 - **`Entrée` / `E`** : Modifier la cellule sélectionnée (Rayon, Épaisseur, Verre, Demi-diamètre, Conique, Commentaire)
-- **`F10` / `M`** : Ouvrir la barre de menu supérieure (`Fichier`, `Édition`, `Analyse`, `Outils`)
+- **`F10` / `M`** : Ouvrir la barre de menu supérieure (`Fichier`, `Édition`, `Analyse`, `Outils`, `Langue`)
 - **`F1` / `1`** : Vue 1 — Coupe Transversale 2D & Lancer de Rayons
 - **`F2` / `2`** : Vue 2 — Projection 3D Isométrique Filaire (`H`/`L` : Lacet, `J`/`K` : Tangage)
 - **`F3` / `3`** : Vue 3 — Spot Diagram Polychromatique & Disque d'Airy
@@ -52,7 +56,11 @@ freeoptical --fichier RITCHRET.TDS
 - **`S`** : Définir la surface sélectionnée comme Diaphragme (`STOP`)
 - **`O`** : Optimiser automatiquement le système par **Damped Least Squares (DLS)**
 - **`P`** : Mise au point paraxiale automatique (ajuste le tirage sur le `BFL`)
+- **`F6`** : Changer de langue (français → anglais → allemand)
 - **`Q`** : Quitter
+
+#### Langue de l'interface
+FreeOptical s'affiche en français, en anglais ou en allemand : menu `Langue` (fenêtre graphique et TUI), touche `F6` dans le TUI, ou option `--langue fr|en|de`. Le choix est enregistré dans `~/.config/freeoptical/langue` ; au premier démarrage, c'est la langue du système (`LANG`) qui est prise. Les noms des outils MCP, des champs JSON et des matériaux (`AIR`, `MIROIR`) sont les mêmes dans toutes les langues ; les descriptions des outils MCP et les messages suivent la langue choisie.
 
 Dans la fenêtre graphique, le menu `Fichier` sauvegarde et recharge `systeme_optique.json` dans le répertoire courant. On peut aussi glisser un fichier `.json`, `.TDS`, `.RLD` ou `.DES` sur la fenêtre.
 Le bouton **`Mise à jour`** (en bas à droite, ou menu `Outils`) cherche la dernière version publiée sur GitHub ; si elle est plus récente, il télécharge le paquet `.deb`, vérifie son empreinte SHA-256 et l'installe avec `apt-get` (le mot de passe administrateur est demandé par `pkexec`), puis propose de redémarrer FreeOptical.
