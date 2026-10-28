@@ -6,6 +6,7 @@ use crate::core::{
     optimizer::{OptimizationReport, OptimizationTarget, OptimizationVariable, optimiser_systeme_dls},
     paraxial::{ParaxialData, calculer_paraxial},
     raytracer::{TracedRay, tracer_eventail_meridional},
+    onde::{calculer_front_onde, calculer_psf_ftm, nom_zernike},
     teloptik::importer_fichier_teloptik,
     types::{OpticalSystem, Surface, SurfaceType},
 };
@@ -91,6 +92,18 @@ pub struct ImporterTeloptikParams {
     pub chemin: String,
 }
 
+/// Paramètres des outils MCP `analyser_front_onde` et `calculer_ftm`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct AnalyseOndeParams {
+    /// Index du champ dans `champs_deg` (0 = sur l'axe par défaut)
+    pub champ_index: Option<usize>,
+    /// Longueur d'onde en nm ; absente : longueur d'onde de référence (front d'onde) ou
+    /// polychromatique pondérée (FTM)
+    pub longueur_onde_nm: Option<f64>,
+    /// Nombre de fréquences retournées pour la FTM (11 par défaut, de 0 à la coupure)
+    pub nb_frequences: Option<usize>,
+}
+
 /// Données brutes retournées par `lancer_simulation()`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SimulationOutput {
@@ -129,7 +142,17 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 7] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 9] = [
+    (
+        "analyser_front_onde",
+        "Computes the wavefront (OPD referred to the chief-ray reference sphere at the exit pupil) for a field and a wavelength: peak-to-valley and RMS in waves, Maréchal Strehl and diffraction PSF Strehl, and the 37 Noll Zernike coefficients.",
+        "Berechnet die Wellenfront (OPD bezogen auf die Referenzkugel des Hauptstrahls in der Austrittspupille) für ein Feld und eine Wellenlänge: Spitze-Tal und RMS in Wellen, Strehl nach Maréchal und aus der Beugungs-PSF sowie die 37 Zernike-Koeffizienten nach Noll.",
+    ),
+    (
+        "calculer_ftm",
+        "Computes the diffraction MTF (FFT of the PSF) of a field, tangential and sagittal, with the diffraction limit of the same pupil, polychromatic by default; also returns the PSF Strehl ratio.",
+        "Berechnet die Beugungs-MTF (FFT der PSF) eines Feldes, tangential und sagittal, mit der Beugungsgrenze derselben Pupille, standardmäßig polychromatisch; liefert auch das Strehl-Verhältnis der PSF.",
+    ),
     (
         "creer_systeme",
         "Creates a new sequential optical system with its name and reference wavelength (in nm).",
@@ -353,6 +376,76 @@ impl FreeOpticalMcpServer {
         }
     }
 
+    /// Front d'onde, Strehl et coefficients de Zernike d'un champ.
+    #[tool(
+        name = "analyser_front_onde",
+        description = "Calcule le front d'onde (OPD rapportée à la sphère de référence du rayon principal en pupille de sortie) d'un champ à une longueur d'onde : crête-à-creux et RMS en ondes, Strehl de Maréchal et Strehl de la PSF de diffraction, 37 coefficients de Zernike (Noll)."
+    )]
+    pub async fn analyser_front_onde(&self, Parameters(params): Parameters<AnalyseOndeParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let champ = sys.champs_deg.get(params.champ_index.unwrap_or(0)).copied().unwrap_or((0.0, 0.0));
+        let lambda = params.longueur_onde_nm.unwrap_or(sys.longueur_onde_ref_nm);
+        let resultat = calculer_front_onde(&sys, champ, lambda, 64).and_then(|carte| {
+            let (psf, _) = calculer_psf_ftm(&sys, champ, Some(lambda))?;
+            Ok((carte, psf.strehl))
+        });
+        match resultat {
+            Ok((carte, strehl_psf)) => serde_json::json!({
+                "champ_deg": carte.champ_deg,
+                "longueur_onde_nm": carte.longueur_onde_nm,
+                "pv_ondes": carte.pv_ondes,
+                "rms_ondes": carte.rms_ondes,
+                "strehl_marechal": carte.strehl_marechal,
+                "strehl_psf": strehl_psf,
+                "nb_rayons": carte.nb_points,
+                "residu_zernike_ondes": carte.residu_zernike_ondes,
+                "zernike_noll_ondes": carte.zernike_ondes.iter().enumerate().map(|(k, c)| serde_json::json!({
+                    "j": k + 1,
+                    "nom": nom_zernike(k + 1),
+                    "ondes": c,
+                })).collect::<Vec<_>>(),
+            })
+            .to_string(),
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// FTM tangentielle et sagittale d'un champ.
+    #[tool(
+        name = "calculer_ftm",
+        description = "Calcule la FTM de diffraction (FFT de la PSF) d'un champ, tangentielle et sagittale, avec la limite de diffraction de la même pupille, polychromatique par défaut ; retourne aussi le rapport de Strehl de la PSF."
+    )]
+    pub async fn calculer_ftm(&self, Parameters(params): Parameters<AnalyseOndeParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let champ = sys.champs_deg.get(params.champ_index.unwrap_or(0)).copied().unwrap_or((0.0, 0.0));
+        match calculer_psf_ftm(&sys, champ, params.longueur_onde_nm) {
+            Ok((psf, ftm)) => {
+                let n = params.nb_frequences.unwrap_or(11).clamp(2, ftm.frequences_cyc_mm.len());
+                let dernier = ftm.frequences_cyc_mm.len() - 1;
+                let points: Vec<_> = (0..n)
+                    .map(|k| {
+                        let i = (k * dernier + (n - 1) / 2) / (n - 1);
+                        serde_json::json!({
+                            "frequence_cyc_mm": ftm.frequences_cyc_mm[i],
+                            "tangentielle": ftm.tangentielle[i],
+                            "sagittale": ftm.sagittale[i],
+                            "limite_diffraction": ftm.limite_diffraction[i],
+                        })
+                    })
+                    .collect();
+                serde_json::json!({
+                    "champ_deg": ftm.champ_deg,
+                    "longueurs_onde_nm": psf.longueurs_onde_nm,
+                    "strehl": psf.strehl,
+                    "frequence_coupure_cyc_mm": ftm.frequence_coupure_cyc_mm,
+                    "ftm": points,
+                })
+                .to_string()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
     /// Exécute le lancer de rayons séquentiel et retourne les données brutes (paraxial, rayons, LSA).
     #[tool(
         name = "lancer_simulation",
@@ -498,6 +591,26 @@ mod tests {
             }))
             .await;
         assert!(res_opt.contains("DLS terminé"));
+    }
+
+    #[tokio::test]
+    async fn test_outils_mcp_front_onde_et_ftm() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let res = srv.analyser_front_onde(Parameters(AnalyseOndeParams::default())).await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let strehl = json["strehl_psf"].as_f64().unwrap();
+        assert!(strehl > 0.0 && strehl <= 1.0, "{res}");
+        assert_eq!(json["zernike_noll_ondes"].as_array().unwrap().len(), 37);
+
+        let res = srv
+            .calculer_ftm(Parameters(AnalyseOndeParams { champ_index: Some(1), nb_frequences: Some(5), ..Default::default() }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let ftm = json["ftm"].as_array().unwrap();
+        assert_eq!(ftm.len(), 5);
+        assert!((ftm[0]["tangentielle"].as_f64().unwrap() - 1.0).abs() < 1e-9);
+        let coupure = json["frequence_coupure_cyc_mm"].as_f64().unwrap();
+        assert!((ftm[4]["frequence_cyc_mm"].as_f64().unwrap() - coupure).abs() < 1e-6 * coupure);
     }
 
     #[tokio::test]

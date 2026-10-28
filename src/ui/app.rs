@@ -7,6 +7,7 @@ use crate::core::{
     optimizer::{OptimizationTarget, OptimizationVariable, optimiser_systeme_dls},
     paraxial::{ParaxialData, calculer_paraxial},
     presets::{creer_interferometre_bath, creer_singlet_aspherique, creer_telescope_cassegrain},
+    onde::AnalysesOndes,
     types::{OpticalSystem, Surface, SurfaceType},
 };
 use crate::i18n::{self, Langue};
@@ -25,6 +26,12 @@ pub enum ActiveView {
     AberrationSpherique,
     /// Catalogue de verres et détails complets des surfaces
     CatalogueVerres,
+    /// Carte de front d'onde (OPD), Zernike et Strehl
+    FrontOnde,
+    /// Tache image de diffraction (PSF)
+    Psf,
+    /// Fonction de transfert de modulation (FTM / MTF)
+    Ftm,
 }
 
 impl ActiveView {
@@ -35,6 +42,47 @@ impl ActiveView {
             ActiveView::SpotDiagram => tr!("ANALYSE : SPOT DIAGRAM AU PLAN IMAGE & DISQUE D'AIRY", "ANALYSIS: IMAGE PLANE SPOT DIAGRAM & AIRY DISK", "ANALYSE: SPOTDIAGRAMM IN DER BILDEBENE & AIRY-SCHEIBCHEN"),
             ActiveView::AberrationSpherique => tr!("ANALYSE : ABERRATION SPHÉRIQUE LONGITUDINALE (LSA)", "ANALYSIS: LONGITUDINAL SPHERICAL ABERRATION (LSA)", "ANALYSE: LONGITUDINALE SPHÄRISCHE ABERRATION (LSA)"),
             ActiveView::CatalogueVerres => tr!("CATALOGUE DE VERRES OPTIQUES (nd / Vd) & MATÉRIAUX", "OPTICAL GLASS CATALOGUE (nd / Vd) & MATERIALS", "OPTISCHER GLASKATALOG (nd / Vd) & MATERIALIEN"),
+            ActiveView::FrontOnde => tr!(
+                "ANALYSE : FRONT D'ONDE (OPD), ZERNIKE & STREHL",
+                "ANALYSIS: WAVEFRONT (OPD), ZERNIKE & STREHL",
+                "ANALYSE: WELLENFRONT (OPD), ZERNIKE & STREHL"
+            ),
+            ActiveView::Psf => tr!(
+                "ANALYSE : TACHE IMAGE DE DIFFRACTION (PSF)",
+                "ANALYSIS: DIFFRACTION POINT SPREAD FUNCTION (PSF)",
+                "ANALYSE: BEUGUNGS-PUNKTBILDFUNKTION (PSF)"
+            ),
+            ActiveView::Ftm => tr!(
+                "ANALYSE : FONCTION DE TRANSFERT DE MODULATION (FTM)",
+                "ANALYSIS: MODULATION TRANSFER FUNCTION (MTF)",
+                "ANALYSE: MODULATIONSÜBERTRAGUNGSFUNKTION (MTF)"
+            ),
+        }
+    }
+
+    /// Toutes les vues, dans l'ordre des touches F1 à F8
+    pub const TOUTES: [ActiveView; 8] = [
+        ActiveView::Coupe2D,
+        ActiveView::Filaire3D,
+        ActiveView::SpotDiagram,
+        ActiveView::AberrationSpherique,
+        ActiveView::CatalogueVerres,
+        ActiveView::FrontOnde,
+        ActiveView::Psf,
+        ActiveView::Ftm,
+    ];
+
+    /// Libellé court pour les onglets
+    pub fn libelle_court(&self) -> &'static str {
+        match self {
+            ActiveView::Coupe2D => tr!("Coupe 2D", "2D Section", "2D-Schnitt"),
+            ActiveView::Filaire3D => tr!("Vue 3D", "3D View", "3D-Ansicht"),
+            ActiveView::SpotDiagram => tr!("Spot", "Spot", "Spot"),
+            ActiveView::AberrationSpherique => tr!("LSA", "LSA", "LSA"),
+            ActiveView::CatalogueVerres => tr!("Verres", "Glasses", "Gläser"),
+            ActiveView::FrontOnde => tr!("Front d'onde", "Wavefront", "Wellenfront"),
+            ActiveView::Psf => tr!("PSF", "PSF", "PSF"),
+            ActiveView::Ftm => tr!("FTM", "MTF", "MTF"),
         }
     }
 }
@@ -136,6 +184,13 @@ pub fn items_menu(menu_idx: usize) -> Vec<&'static str> {
                 "5. Glass Catalogue & Dispersion (F5 / 5)",
                 "5. Glaskatalog & Dispersion (F5 / 5)"
             ),
+            tr!(
+                "6. Front d'onde, Zernike & Strehl (F6 / 6)",
+                "6. Wavefront, Zernike & Strehl (F6 / 6)",
+                "6. Wellenfront, Zernike & Strehl (F6 / 6)"
+            ),
+            tr!("7. Tache image de diffraction PSF (F7 / 7)", "7. Diffraction PSF (F7 / 7)", "7. Beugungs-PSF (F7 / 7)"),
+            tr!("8. FTM tangentielle & sagittale (F8 / 8)", "8. Tangential & sagittal MTF (F8 / 8)", "8. Tangentiale & sagittale MTF (F8 / 8)"),
         ],
         3 => vec![
             tr!(
@@ -175,6 +230,8 @@ pub struct AppState {
     pub nb_rayons_2d: usize,
     pub statut_message: String,
     pub doit_quitter: bool,
+    /// Champ, longueur d'onde et résultats des analyses front d'onde / PSF / FTM
+    pub ondes: AnalysesOndes,
 }
 
 impl AppState {
@@ -203,6 +260,7 @@ impl AppState {
             nb_rayons_2d: 9,
             statut_message,
             doit_quitter: false,
+            ondes: AnalysesOndes::default(),
         }
     }
 
@@ -211,6 +269,7 @@ impl AppState {
         self.paraxial = calculer_paraxial(&self.systeme);
         self.spot = calculer_spot_diagram(&self.systeme, (0.0, 0.0), 4);
         self.lsa = calculer_aberration_spherique_longitudinale(&self.systeme, 14);
+        self.ondes.invalider();
         if self.ligne_selectionnee >= self.systeme.surfaces.len() {
             self.ligne_selectionnee = self.systeme.surfaces.len().saturating_sub(1);
         }
@@ -477,6 +536,22 @@ impl AppState {
         };
     }
 
+    /// Calcule les analyses ondulatoires nécessaires à la vue active (avant l'affichage)
+    pub fn preparer_vue(&mut self) {
+        match self.vue_active {
+            ActiveView::FrontOnde => {
+                self.ondes.front_onde(&self.systeme);
+            }
+            ActiveView::Psf => {
+                self.ondes.psf(&self.systeme);
+            }
+            ActiveView::Ftm => {
+                self.ondes.ftm_champs(&self.systeme);
+            }
+            _ => {}
+        }
+    }
+
     /// Exécute une action du menu déroulant supérieur
     pub fn executer_action_menu(&mut self, menu_idx: usize, item_idx: usize) {
         self.menu_ouvert = None;
@@ -542,6 +617,9 @@ impl AppState {
             (2, 2) => self.vue_active = ActiveView::SpotDiagram,
             (2, 3) => self.vue_active = ActiveView::AberrationSpherique,
             (2, 4) => self.vue_active = ActiveView::CatalogueVerres,
+            (2, 5) => self.vue_active = ActiveView::FrontOnde,
+            (2, 6) => self.vue_active = ActiveView::Psf,
+            (2, 7) => self.vue_active = ActiveView::Ftm,
             // Menu Outils
             (3, 0) => self.lancer_optimisation_rapide(),
             (3, 1) => self.mise_au_point_paraxiale(),

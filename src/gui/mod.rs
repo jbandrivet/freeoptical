@@ -2,9 +2,12 @@
 //! avec esthétique rétro MS-DOS / CAO Zemax, rendu vectoriel haute résolution 2D/3D
 //! et contrôle interactif à la souris et au clavier.
 
+mod ondes;
+
 use crate::{
     i18n::{self, Langue},
     core::{
+        onde::AnalysesOndes,
         analysis::{
             LongitudinalAberrationResult, SpotDiagramResult,
             calculer_aberration_spherique_longitudinale, calculer_spot_diagram,
@@ -265,6 +268,12 @@ pub struct FreeOpticalGuiApp {
     recepteur_maj: Option<mpsc::Receiver<EtatMaj>>,
     pub fenetre_import: bool,
     pub dossier_import: String,
+    /// Champ, longueur d'onde et résultats des analyses front d'onde / PSF / FTM
+    pub ondes: AnalysesOndes,
+    textures_ondes: ondes::TexturesOndes,
+    pub psf_log: bool,
+    /// Demi-largeur de la PSF affichée, en rayons d'Airy
+    pub psf_zoom: f32,
     /// Résultat du dernier import (réussi, message, avertissements) affiché dans la fenêtre d'import
     pub bilan_import: Option<(bool, String, Vec<String>)>,
 }
@@ -296,6 +305,10 @@ impl FreeOpticalGuiApp {
             etat_maj: EtatMaj::Recherche,
             recepteur_maj: None,
             fenetre_import: false,
+            ondes: AnalysesOndes::default(),
+            textures_ondes: ondes::TexturesOndes::default(),
+            psf_log: false,
+            psf_zoom: 8.0,
             dossier_import: std::env::current_dir()
                 .map(|d| d.display().to_string())
                 .unwrap_or_default(),
@@ -307,6 +320,7 @@ impl FreeOpticalGuiApp {
         self.paraxial = calculer_paraxial(&self.systeme);
         self.spot = calculer_spot_diagram(&self.systeme, (0.0, 0.0), 4);
         self.lsa = calculer_aberration_spherique_longitudinale(&self.systeme, 16);
+        self.ondes.invalider();
         if self.ligne_selectionnee >= self.systeme.surfaces.len() {
             self.ligne_selectionnee = self.systeme.surfaces.len().saturating_sub(1);
         }
@@ -741,6 +755,12 @@ impl eframe::App for FreeOpticalGuiApp {
                 self.vue_active = ActiveView::AberrationSpherique;
             } else if i.key_pressed(Key::F5) {
                 self.vue_active = ActiveView::CatalogueVerres;
+            } else if i.key_pressed(Key::F6) {
+                self.vue_active = ActiveView::FrontOnde;
+            } else if i.key_pressed(Key::F7) {
+                self.vue_active = ActiveView::Psf;
+            } else if i.key_pressed(Key::F8) {
+                self.vue_active = ActiveView::Ftm;
             }
         });
 
@@ -911,6 +931,40 @@ impl eframe::App for FreeOpticalGuiApp {
                             self.vue_active = ActiveView::CatalogueVerres;
                             ui.close();
                         }
+                        ui.separator();
+                        if ui
+                            .button(tr!(
+                                "F6 : Front d'onde (OPD), Zernike & Strehl",
+                                "F6: Wavefront (OPD), Zernike & Strehl",
+                                "F6: Wellenfront (OPD), Zernike & Strehl"
+                            ))
+                            .clicked()
+                        {
+                            self.vue_active = ActiveView::FrontOnde;
+                            ui.close();
+                        }
+                        if ui
+                            .button(tr!(
+                                "F7 : Tache image de diffraction (PSF)",
+                                "F7: Diffraction point spread function (PSF)",
+                                "F7: Beugungs-Punktbildfunktion (PSF)"
+                            ))
+                            .clicked()
+                        {
+                            self.vue_active = ActiveView::Psf;
+                            ui.close();
+                        }
+                        if ui
+                            .button(tr!(
+                                "F8 : Fonction de transfert de modulation (FTM)",
+                                "F8: Modulation transfer function (MTF)",
+                                "F8: Modulationsübertragungsfunktion (MTF)"
+                            ))
+                            .clicked()
+                        {
+                            self.vue_active = ActiveView::Ftm;
+                            ui.close();
+                        }
                     });
 
                     ui.menu_button(RichText::new(tr!(" Outils ", " Tools ", " Werkzeuge ")).monospace().strong(), |ui| {
@@ -951,32 +1005,6 @@ impl eframe::App for FreeOpticalGuiApp {
                             }
                         },
                     );
-
-                    ui.separator();
-                    // Boutons d'accès direct aux vues et préréglages dans la barre supérieure
-                    for (vue, label) in [
-                        (ActiveView::Coupe2D, tr!(" [F1] Coupe 2D ", " [F1] 2D Section ", " [F1] 2D-Schnitt ")),
-                        (ActiveView::Filaire3D, tr!(" [F2] Vue 3D ", " [F2] 3D View ", " [F2] 3D-Ansicht ")),
-                        (ActiveView::SpotDiagram, tr!(" [F3] Spot Diagram ", " [F3] Spot Diagram ", " [F3] Spotdiagramm ")),
-                        (ActiveView::AberrationSpherique, tr!(" [F4] Aberr. Sphérique ", " [F4] Spher. Aberr. ", " [F4] Sphär. Aberr. ")),
-                        (ActiveView::CatalogueVerres, tr!(" [F5] Verres ", " [F5] Glasses ", " [F5] Gläser ")),
-                    ] {
-                        let actif = self.vue_active == vue;
-                        let btn = egui::Button::new(
-                            RichText::new(label)
-                                .monospace()
-                                .strong()
-                                .color(if actif { COL_DOS_YELLOW } else { Color32::BLACK }),
-                        )
-                        .fill(if actif {
-                            Color32::from_rgb(0, 70, 150)
-                        } else {
-                            Color32::from_rgb(170, 175, 185)
-                        });
-                        if ui.add(btn).clicked() {
-                            self.vue_active = vue;
-                        }
-                    }
 
                     ui.separator();
                     if ui
@@ -1087,12 +1115,36 @@ impl eframe::App for FreeOpticalGuiApp {
                     .inner_margin(Margin::symmetric(8, 6)),
             )
             .show(ui, |ui| {
+                // Onglets des vues (F1 à F8)
+                ui.horizontal_wrapped(|ui| {
+                    for (k, vue) in ActiveView::TOUTES.into_iter().enumerate() {
+                        let actif = self.vue_active == vue;
+                        let btn = egui::Button::new(
+                            RichText::new(format!(" F{} {} ", k + 1, vue.libelle_court()))
+                                .monospace()
+                                .strong()
+                                .color(if actif { COL_DOS_YELLOW } else { Color32::BLACK }),
+                        )
+                        .fill(if actif {
+                            Color32::from_rgb(0, 70, 150)
+                        } else {
+                            Color32::from_rgb(170, 175, 185)
+                        });
+                        if ui.add(btn).clicked() {
+                            self.vue_active = vue;
+                        }
+                    }
+                });
+                ui.add_space(4.0);
                 cadre_dos(ui, self.vue_active.titre(), |ui| match self.vue_active {
                     ActiveView::Coupe2D => self.dessiner_canevas_2d(ui),
                     ActiveView::Filaire3D => self.dessiner_canevas_3d(ui),
                     ActiveView::SpotDiagram => self.dessiner_canevas_spot(ui),
                     ActiveView::AberrationSpherique => self.dessiner_canevas_lsa(ui),
                     ActiveView::CatalogueVerres => self.dessiner_table_verres(ui),
+                    ActiveView::FrontOnde => self.dessiner_front_onde(ui),
+                    ActiveView::Psf => self.dessiner_psf(ui),
+                    ActiveView::Ftm => self.dessiner_ftm(ui),
                 });
             });
 

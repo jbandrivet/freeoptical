@@ -9,8 +9,8 @@
 **Free sequential optical design and simulation software for Linux: graphical interface, terminal interface and MCP server.**
 
 FreeOptical lets you design any optical system (objective, refractor, mirror telescope, test setup…) surface by surface, then analyse and optimize it. It is written in **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) and combines:
-1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, $n_d / V_d$ chromatic dispersion, polychromatic spot diagram, longitudinal spherical aberration and Damped Least Squares optimization.
-2. **A graphical interface and a terminal interface (`--tui`) in English, French or German**: Lens Data Editor (LDE), 2D cross section with ray trace, rotatable 3D view, spot diagram, LSA and glass catalogue. Start from an empty system (`File` → `New empty system`) or from one of the bundled examples.
+1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, $n_d / V_d$ chromatic dispersion, polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, and Damped Least Squares optimization.
+2. **A graphical interface and a terminal interface (`--tui`) in English, French or German**: Lens Data Editor (LDE), 2D cross section with ray trace, rotatable 3D view, spot diagram, LSA, glass catalogue, wavefront, PSF and MTF. Start from an empty system (`File` → `New empty system`) or from one of the bundled examples.
 3. **A built-in Model Context Protocol (MCP) server** letting an AI agent design, simulate and optimize optical systems.
 
 ---
@@ -49,6 +49,10 @@ freeoptical --langue en
 - **`F3` / `3`**: view 3 — polychromatic spot diagram & Airy disk
 - **`F4` / `4`**: view 4 — longitudinal spherical aberration (LSA)
 - **`F5` / `5`**: view 5 — glass catalogue (`BK7`, `F2`, `SF11`, `SILICE`, `LAK9`, `SK16`, `BAF10`, `FK51A`...)
+- **`F6` / `6`**: view 6 — wavefront (OPD), Zernike coefficients and Strehl
+- **`F7` / `7`**: view 7 — diffraction point spread function (PSF)
+- **`F8` / `8`**: view 8 — tangential and sagittal MTF of all fields
+- **`C`** / **`W`**: next field / next wavelength for views 6 to 8
 - **`I` / `Ins`**: insert a surface before the selected row
 - **`A`**: add a surface before the image plane
 - **`Del` / `X`**: delete the selected surface
@@ -56,15 +60,22 @@ freeoptical --langue en
 - **`S`**: set the selected surface as aperture stop (`STOP`)
 - **`O`**: optimize the system with **Damped Least Squares (DLS)**
 - **`P`**: automatic paraxial focus (sets the back focus to the `BFL`)
-- **`F6`**: switch language (French → English → German)
+- **`F12`**: switch language (French → English → German)
 - **`Q`**: quit
 
 #### Interface language
-FreeOptical is available in French, English and German: `Language` menu (graphical window and TUI), `F6` key in the TUI, or `--langue fr|en|de` option. The choice is saved in `~/.config/freeoptical/langue`; on first start the system language (`LANG`) is used. MCP tool names, JSON field names and material names (`AIR`, `MIROIR`) are the same in every language; MCP tool descriptions and messages follow the chosen language.
+FreeOptical is available in French, English and German: `Language` menu (graphical window and TUI), `F12` key in the TUI, or `--langue fr|en|de` option. The choice is saved in `~/.config/freeoptical/langue`; on first start the system language (`LANG`) is used. MCP tool names, JSON field names and material names (`AIR`, `MIROIR`) are the same in every language; MCP tool descriptions and messages follow the chosen language.
 
 In the graphical window, the `File` menu saves and reloads `systeme_optique.json` in the current directory. You can also drop a `.json`, `.TDS`, `.RLD` or `.DES` file onto the window.
 The **`Update`** button (bottom right, or `Tools` menu) looks for the latest version published on GitHub; if it is newer, it downloads the `.deb` package, checks its SHA-256 digest and installs it with `apt-get` (the administrator password is asked by `pkexec`), then offers to restart FreeOptical.
 The A4, A6, A8, A10 aspheric coefficients of the selected surface are edited on the line above the LDE table (drag: 0.1 µm of edge sag per pixel; click: type a value, e.g. `2.1e-7`); changing a coefficient switches the surface to the `ASPHERIC` type.
+
+#### Wave analyses: wavefront, PSF and MTF
+Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field and wavelength (or to all weighted wavelengths).
+- **Wavefront**: optical path difference referred to the reference sphere centred on the chief-ray image and passing through the paraxial exit pupil (Zemax convention), positive when the ray's optical path is longer; peak-to-valley, RMS, Maréchal Strehl and 37 Zernike coefficients (Noll normalization and ordering).
+- **PSF**: Fraunhofer diffraction pattern by FFT of the pupil, polychromatic or at one wavelength, linear or logarithmic scale; the Strehl ratio is the PSF peak relative to the same pupil without aberration. Sampling adapts to the spot size to avoid aliasing.
+- **MTF**: modulus of the Fourier transform of the PSF, tangential and sagittal for each field, with the diffraction limit of the pupil.
+- Checked by the tests: perfect paraboloid (Strehl 1, MTF equal to the circular pupil formula), defocus (exact sinc² Strehl), spherical aberration of a spherical mirror and coma of a paraboloid matching the third-order formulas, PSF centroid equal to the spot diagram centroid.
 
 #### Importing TDESIGN, LENSDES and RAYTRACE files
 FreeOptical reads the design files of the programs from the book *Telescope Optics: Evaluation and Design* (H. G. J. Rutten and M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, mirror and catadioptric telescopes), `.RLD` (LENSDES, refractor objectives) and `.DES` (RAYTRACE). `File` menu → `Import TDESIGN / LENSDES / RAYTRACE`, `--fichier` option, or `importer_teloptik` MCP tool.
@@ -95,6 +106,8 @@ freeoptical --mcp
 - `obtenir_spot_diagram()`: returns the image plane hits, the centroid, the RMS radius and the Airy radius.
 - `optimiser_systeme(variables, cibles)`: runs the Damped Least Squares (DLS) optimizer.
 - `importer_teloptik(chemin)`: imports a `.TDS`, `.RLD` or `.DES` file (TDESIGN, LENSDES, RAYTRACE) as the current system.
+- `analyser_front_onde(champ_index, longueur_onde_nm)`: wavefront of a field: peak-to-valley, RMS, Strehl (Maréchal and PSF), 37 Zernike coefficients.
+- `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangential and sagittal MTF, diffraction limit and PSF Strehl.
 
 ---
 

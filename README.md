@@ -9,8 +9,8 @@
 **Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**
 
 FreeOptical permet de concevoir n'importe quel système optique (objectif, lunette, télescope à miroirs, montage de test…) surface par surface, puis de l'analyser et de l'optimiser. Il est écrit en **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) et combine :
-1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, dispersion chromatique $n_d / V_d$, spot diagram polychromatique, aberration sphérique longitudinale et optimisation Damped Least Squares.
-2. **Une interface graphique et une interface terminal (`--tui`) en français, en anglais ou en allemand** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA et catalogue de verres. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
+1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, dispersion chromatique $n_d / V_d$, spot diagram polychromatique, aberration sphérique longitudinale, différence de marche (OPD) et front d'onde avec polynômes de Zernike, rapport de Strehl, PSF et FTM de diffraction, et optimisation Damped Least Squares.
+2. **Une interface graphique et une interface terminal (`--tui`) en français, en anglais ou en allemand** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA, catalogue de verres, front d'onde, PSF et FTM. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
 3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques.
 
 ---
@@ -49,6 +49,10 @@ freeoptical --langue fr
 - **`F3` / `3`** : Vue 3 — Spot Diagram Polychromatique & Disque d'Airy
 - **`F4` / `4`** : Vue 4 — Aberration Sphérique Longitudinale (LSA)
 - **`F5` / `5`** : Vue 5 — Catalogue de Verres (`BK7`, `F2`, `SF11`, `SILICE`, `LAK9`, `SK16`, `BAF10`, `FK51A`...)
+- **`F6` / `6`** : Vue 6 — Front d'onde (OPD), coefficients de Zernike et Strehl
+- **`F7` / `7`** : Vue 7 — Tache image de diffraction (PSF)
+- **`F8` / `8`** : Vue 8 — FTM tangentielle et sagittale de tous les champs
+- **`C`** / **`W`** : Champ suivant / longueur d'onde suivante pour les vues 6 à 8
 - **`I` / `Ins`** : Insérer une surface avant la ligne sélectionnée
 - **`A`** : Ajouter une surface avant le Plan Image
 - **`Suppr` / `X`** : Supprimer la surface sélectionnée
@@ -56,15 +60,22 @@ freeoptical --langue fr
 - **`S`** : Définir la surface sélectionnée comme Diaphragme (`STOP`)
 - **`O`** : Optimiser automatiquement le système par **Damped Least Squares (DLS)**
 - **`P`** : Mise au point paraxiale automatique (ajuste le tirage sur le `BFL`)
-- **`F6`** : Changer de langue (français → anglais → allemand)
+- **`F12`** : Changer de langue (français → anglais → allemand)
 - **`Q`** : Quitter
 
 #### Langue de l'interface
-FreeOptical s'affiche en français, en anglais ou en allemand : menu `Langue` (fenêtre graphique et TUI), touche `F6` dans le TUI, ou option `--langue fr|en|de`. Le choix est enregistré dans `~/.config/freeoptical/langue` ; au premier démarrage, c'est la langue du système (`LANG`) qui est prise. Les noms des outils MCP, des champs JSON et des matériaux (`AIR`, `MIROIR`) sont les mêmes dans toutes les langues ; les descriptions des outils MCP et les messages suivent la langue choisie.
+FreeOptical s'affiche en français, en anglais ou en allemand : menu `Langue` (fenêtre graphique et TUI), touche `F12` dans le TUI, ou option `--langue fr|en|de`. Le choix est enregistré dans `~/.config/freeoptical/langue` ; au premier démarrage, c'est la langue du système (`LANG`) qui est prise. Les noms des outils MCP, des champs JSON et des matériaux (`AIR`, `MIROIR`) sont les mêmes dans toutes les langues ; les descriptions des outils MCP et les messages suivent la langue choisie.
 
 Dans la fenêtre graphique, le menu `Fichier` sauvegarde et recharge `systeme_optique.json` dans le répertoire courant. On peut aussi glisser un fichier `.json`, `.TDS`, `.RLD` ou `.DES` sur la fenêtre.
 Le bouton **`Mise à jour`** (en bas à droite, ou menu `Outils`) cherche la dernière version publiée sur GitHub ; si elle est plus récente, il télécharge le paquet `.deb`, vérifie son empreinte SHA-256 et l'installe avec `apt-get` (le mot de passe administrateur est demandé par `pkexec`), puis propose de redémarrer FreeOptical.
 Les coefficients asphériques A4, A6, A8, A10 de la surface sélectionnée s'éditent sur la ligne au-dessus du tableau LDE (glisser : 0,1 µm de flèche au bord par pixel ; clic : saisie directe, ex. `2.1e-7`) ; modifier un coefficient passe la surface en type `ASPHERIQUE`.
+
+#### Analyses ondulatoires : front d'onde, PSF et FTM
+Les vues `F6`, `F7` et `F8` (fenêtre graphique et TUI) s'appliquent au champ et à la longueur d'onde choisis (ou à toutes les longueurs d'onde pondérées).
+- **Front d'onde** : différence de marche rapportée à la sphère de référence centrée sur l'image du rayon principal et passant par la pupille de sortie paraxiale (convention de Zemax), positive quand le chemin optique du rayon est plus long ; crête-à-creux, RMS, Strehl de Maréchal et 37 coefficients de Zernike (normalisation et ordre de Noll).
+- **PSF** : figure de diffraction de Fraunhofer par FFT de la pupille, polychromatique ou à une longueur d'onde, échelle linéaire ou logarithmique ; le rapport de Strehl est le pic de la PSF rapporté à celui de la même pupille sans aberration. L'échantillonnage s'adapte à la taille de la tache pour éviter le repliement.
+- **FTM** : module de la transformée de Fourier de la PSF, tangentielle et sagittale pour chaque champ, avec la limite de diffraction de la pupille.
+- Vérifié par les tests : parabole parfaite (Strehl 1, FTM égale à la formule de la pupille circulaire), défocalisation (Strehl exact sinc²), aberration sphérique d'un miroir sphérique et coma d'une parabole conformes aux formules du 3e ordre, centre de gravité de la PSF égal à celui du spot diagram.
 
 #### Import des fichiers TDESIGN, LENSDES et RAYTRACE
 FreeOptical lit les fichiers de conception des programmes du livre *Telescope Optics: Evaluation and Design* (H. G. J. Rutten et M. A. M. van Venrooij, Willmann-Bell, 1988) : `.TDS` (TDESIGN, télescopes à miroirs et catadioptriques), `.RLD` (LENSDES, objectifs de lunette) et `.DES` (RAYTRACE). Menu `Fichier` → `Importer TDESIGN / LENSDES / RAYTRACE`, option `--fichier`, ou outil MCP `importer_teloptik`.
@@ -95,6 +106,8 @@ freeoptical --mcp
 - `obtenir_spot_diagram()` : Retourne les coordonnées des impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
 - `optimiser_systeme(variables, cibles)` : Exécute l'optimiseur Damped Least Squares (DLS).
 - `importer_teloptik(chemin)` : Importe un fichier `.TDS`, `.RLD` ou `.DES` (TDESIGN, LENSDES, RAYTRACE) comme système courant.
+- `analyser_front_onde(champ_index, longueur_onde_nm)` : Front d'onde d'un champ : crête-à-creux, RMS, Strehl (Maréchal et PSF), 37 coefficients de Zernike.
+- `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)` : FTM tangentielle et sagittale, limite de diffraction et Strehl de la PSF.
 
 ---
 

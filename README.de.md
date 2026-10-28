@@ -9,8 +9,8 @@
 **Freie Software für sequentielles Optikdesign und Simulation unter Linux: grafische Oberfläche, Terminal-Oberfläche und MCP-Server.**
 
 Mit FreeOptical lässt sich jedes optische System (Objektiv, Refraktor, Spiegelteleskop, Prüfaufbau…) Fläche für Fläche entwerfen, analysieren und optimieren. Es ist in **Rust** geschrieben (`egui`, `ratatui`, `nalgebra`, `rmcp`) und vereint:
-1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, chromatische Dispersion $n_d / V_d$, polychromatisches Spotdiagramm, longitudinale sphärische Aberration und Optimierung nach Damped Least Squares.
-2. **Eine grafische Oberfläche und eine Terminal-Oberfläche (`--tui`) auf Deutsch, Englisch oder Französisch**: Linsendaten-Editor (LDE), 2D-Schnitt mit Strahlverfolgung, drehbare 3D-Ansicht, Spotdiagramm, LSA und Glaskatalog. Man beginnt mit einem leeren System (`Datei` → `Neues leeres System`) oder mit einem der mitgelieferten Beispiele.
+1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, chromatische Dispersion $n_d / V_d$, polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF sowie Optimierung nach Damped Least Squares.
+2. **Eine grafische Oberfläche und eine Terminal-Oberfläche (`--tui`) auf Deutsch, Englisch oder Französisch**: Linsendaten-Editor (LDE), 2D-Schnitt mit Strahlverfolgung, drehbare 3D-Ansicht, Spotdiagramm, LSA, Glaskatalog, Wellenfront, PSF und MTF. Man beginnt mit einem leeren System (`Datei` → `Neues leeres System`) oder mit einem der mitgelieferten Beispiele.
 3. **Einen eingebauten Model-Context-Protocol-Server (MCP)**, mit dem ein KI-Agent optische Systeme entwerfen, simulieren und optimieren kann.
 
 ---
@@ -49,6 +49,10 @@ freeoptical --langue de
 - **`F3` / `3`**: Ansicht 3 — polychromatisches Spotdiagramm & Airy-Scheibchen
 - **`F4` / `4`**: Ansicht 4 — longitudinale sphärische Aberration (LSA)
 - **`F5` / `5`**: Ansicht 5 — Glaskatalog (`BK7`, `F2`, `SF11`, `SILICE`, `LAK9`, `SK16`, `BAF10`, `FK51A`...)
+- **`F6` / `6`**: Ansicht 6 — Wellenfront (OPD), Zernike-Koeffizienten und Strehl
+- **`F7` / `7`**: Ansicht 7 — Beugungs-Punktbildfunktion (PSF)
+- **`F8` / `8`**: Ansicht 8 — tangentiale und sagittale MTF aller Felder
+- **`C`** / **`W`**: nächstes Feld / nächste Wellenlänge für die Ansichten 6 bis 8
 - **`I` / `Einfg`**: Fläche vor der ausgewählten Zeile einfügen
 - **`A`**: Fläche vor der Bildebene hinzufügen
 - **`Entf` / `X`**: ausgewählte Fläche löschen
@@ -56,15 +60,22 @@ freeoptical --langue de
 - **`S`**: ausgewählte Fläche als Aperturblende setzen (`STOP`)
 - **`O`**: System mit **Damped Least Squares (DLS)** optimieren
 - **`P`**: automatische paraxiale Fokussierung (setzt die Schnittweite auf die `BFL`)
-- **`F6`**: Sprache wechseln (Französisch → Englisch → Deutsch)
+- **`F12`**: Sprache wechseln (Französisch → Englisch → Deutsch)
 - **`Q`**: beenden
 
 #### Sprache der Oberfläche
-FreeOptical gibt es auf Französisch, Englisch und Deutsch: Menü `Sprache` (grafisches Fenster und TUI), Taste `F6` in der TUI oder Option `--langue fr|en|de`. Die Wahl wird in `~/.config/freeoptical/langue` gespeichert; beim ersten Start gilt die Systemsprache (`LANG`). Die Namen der MCP-Werkzeuge, der JSON-Felder und der Materialien (`AIR`, `MIROIR`) sind in allen Sprachen gleich; die Beschreibungen der MCP-Werkzeuge und die Meldungen folgen der gewählten Sprache.
+FreeOptical gibt es auf Französisch, Englisch und Deutsch: Menü `Sprache` (grafisches Fenster und TUI), Taste `F12` in der TUI oder Option `--langue fr|en|de`. Die Wahl wird in `~/.config/freeoptical/langue` gespeichert; beim ersten Start gilt die Systemsprache (`LANG`). Die Namen der MCP-Werkzeuge, der JSON-Felder und der Materialien (`AIR`, `MIROIR`) sind in allen Sprachen gleich; die Beschreibungen der MCP-Werkzeuge und die Meldungen folgen der gewählten Sprache.
 
 Im grafischen Fenster speichert und lädt das Menü `Datei` die Datei `systeme_optique.json` im aktuellen Verzeichnis. Eine `.json`-, `.TDS`-, `.RLD`- oder `.DES`-Datei kann auch auf das Fenster gezogen werden.
 Die Schaltfläche **`Update`** (unten rechts oder Menü `Werkzeuge`) sucht die neueste auf GitHub veröffentlichte Version; ist sie neuer, lädt sie das `.deb`-Paket herunter, prüft dessen SHA-256-Prüfsumme, installiert es mit `apt-get` (das Administratorpasswort wird von `pkexec` abgefragt) und bietet einen Neustart von FreeOptical an.
 Die Asphärenkoeffizienten A4, A6, A8, A10 der ausgewählten Fläche werden in der Zeile über der LDE-Tabelle bearbeitet (Ziehen: 0,1 µm Pfeilhöhe am Rand pro Pixel; Klicken: direkte Eingabe, z. B. `2.1e-7`); das Ändern eines Koeffizienten schaltet die Fläche auf den Typ `ASPHÄRISCH`.
+
+#### Wellenoptische Analysen: Wellenfront, PSF und MTF
+Die Ansichten `F6`, `F7` und `F8` (grafisches Fenster und TUI) gelten für das gewählte Feld und die gewählte Wellenlänge (oder alle gewichteten Wellenlängen).
+- **Wellenfront**: optische Wegdifferenz bezogen auf die Referenzkugel um das Bild des Hauptstrahls durch die paraxiale Austrittspupille (Zemax-Konvention), positiv, wenn der optische Weg des Strahls länger ist; Spitze-Tal, RMS, Strehl nach Maréchal und 37 Zernike-Koeffizienten (Normierung und Reihenfolge nach Noll).
+- **PSF**: Fraunhofer-Beugungsbild per FFT der Pupille, polychromatisch oder bei einer Wellenlänge, lineare oder logarithmische Skala; das Strehl-Verhältnis ist das PSF-Maximum bezogen auf dieselbe Pupille ohne Aberration. Die Abtastung passt sich der Spotgröße an, um Aliasing zu vermeiden.
+- **MTF**: Betrag der Fourier-Transformierten der PSF, tangential und sagittal für jedes Feld, mit der Beugungsgrenze der Pupille.
+- Durch Tests geprüft: perfekter Paraboloid (Strehl 1, MTF gleich der Formel der Kreispupille), Defokus (exakter sinc²-Strehl), sphärische Aberration eines Kugelspiegels und Koma eines Paraboloids gemäß den Formeln dritter Ordnung, Schwerpunkt der PSF gleich dem des Spotdiagramms.
 
 #### Import von TDESIGN-, LENSDES- und RAYTRACE-Dateien
 FreeOptical liest die Designdateien der Programme aus dem Buch *Telescope Optics: Evaluation and Design* (H. G. J. Rutten und M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, Spiegel- und katadioptrische Teleskope), `.RLD` (LENSDES, Refraktorobjektive) und `.DES` (RAYTRACE). Menü `Datei` → `TDESIGN / LENSDES / RAYTRACE importieren`, Option `--fichier` oder MCP-Werkzeug `importer_teloptik`.
@@ -95,6 +106,8 @@ freeoptical --mcp
 - `obtenir_spot_diagram()`: liefert die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius und den Airy-Radius.
 - `optimiser_systeme(variables, cibles)`: startet die Optimierung nach Damped Least Squares (DLS).
 - `importer_teloptik(chemin)`: importiert eine `.TDS`-, `.RLD`- oder `.DES`-Datei (TDESIGN, LENSDES, RAYTRACE) als aktuelles System.
+- `analyser_front_onde(champ_index, longueur_onde_nm)`: Wellenfront eines Feldes: Spitze-Tal, RMS, Strehl (Maréchal und PSF), 37 Zernike-Koeffizienten.
+- `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangentiale und sagittale MTF, Beugungsgrenze und Strehl der PSF.
 
 ---
 

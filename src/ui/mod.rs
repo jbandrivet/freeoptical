@@ -3,6 +3,7 @@
 pub mod analysis_view;
 pub mod app;
 pub mod lde;
+pub mod ondes_view;
 pub mod theme;
 pub mod viewport_2d;
 pub mod viewport_3d;
@@ -60,6 +61,7 @@ fn boucle_principale(
     app: &mut AppState,
 ) -> Result<()> {
     while !app.doit_quitter {
+        app.preparer_vue();
         terminal.draw(|f| dessiner_interface(f, app))?;
 
         if event::poll(Duration::from_millis(50))? {
@@ -123,7 +125,11 @@ fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
     }
 
     spans.push(Span::styled(
-        tr!("  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Verres  F10/M:Menu]", "  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Glass  F6:Lang.  F10/M:Menu]", "  [F1:2D  F2:3D  F3:Spot  F4:LSA  F5:Glas  F6:Sprache  F10/M:Menü]"),
+        tr!(
+            "  [F1-F8:Vues  C:Champ  W:λ  F10/M:Menu  F12:Langue]",
+            "  [F1-F8:Views  C:Field  W:λ  F10/M:Menu  F12:Language]",
+            "  [F1-F8:Ansichten  C:Feld  W:λ  F10/M:Menü  F12:Sprache]"
+        ),
         Style::default().bg(DOS_BAR_BG).fg(Color::Rgb(60, 60, 60)),
     ));
 
@@ -142,6 +148,9 @@ fn dessiner_zone_inferieure(f: &mut Frame, zone: Rect, app: &AppState) {
         ActiveView::SpotDiagram => dessiner_spot_diagram(f, interieur, app),
         ActiveView::AberrationSpherique => dessiner_aberration_spherique(f, interieur, app),
         ActiveView::CatalogueVerres => dessiner_catalogue_verres(f, interieur, app),
+        ActiveView::FrontOnde => ondes_view::dessiner_front_onde(f, interieur, app),
+        ActiveView::Psf => ondes_view::dessiner_psf(f, interieur, app),
+        ActiveView::Ftm => ondes_view::dessiner_ftm(f, interieur, app),
     }
 }
 
@@ -180,7 +189,7 @@ fn dessiner_catalogue_verres(f: &mut Frame, zone: Rect, app: &AppState) {
 }
 
 fn dessiner_barre_statut(f: &mut Frame, zone: Rect, app: &AppState) {
-    let raccourcis = tr!(" Flèches:Nav | Entrée:Éditer | A:Ajouter | Suppr:Effacer | T:Type | O:Optimiser DLS | Q:Quitter ", " Arrows:Nav | Enter:Edit | A:Add | Del:Delete | T:Type | O:Optimize DLS | F6:Language | Q:Quit ", " Pfeile:Nav | Eingabe:Bearb. | A:Neu | Entf:Löschen | T:Typ | O:DLS optim. | F6:Sprache | Q:Ende ");
+    let raccourcis = tr!(" Flèches:Nav | Entrée:Éditer | A:Ajouter | Suppr:Effacer | T:Type | O:Optimiser DLS | Q:Quitter ", " Arrows:Nav | Enter:Edit | A:Add | Del:Delete | T:Type | O:Optimize DLS | Q:Quit ", " Pfeile:Nav | Eingabe:Bearb. | A:Neu | Entf:Löschen | T:Typ | O:DLS optim. | Q:Ende ");
     let ligne = Line::from(vec![
         Span::styled(
             raccourcis,
@@ -317,7 +326,16 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
         KeyCode::F(3) | KeyCode::Char('3') => app.vue_active = ActiveView::SpotDiagram,
         KeyCode::F(4) | KeyCode::Char('4') => app.vue_active = ActiveView::AberrationSpherique,
         KeyCode::F(5) | KeyCode::Char('5') => app.vue_active = ActiveView::CatalogueVerres,
-        KeyCode::F(6) => app.changer_langue(crate::i18n::langue().suivante()),
+        KeyCode::F(6) | KeyCode::Char('6') => app.vue_active = ActiveView::FrontOnde,
+        KeyCode::F(7) | KeyCode::Char('7') => app.vue_active = ActiveView::Psf,
+        KeyCode::F(8) | KeyCode::Char('8') => app.vue_active = ActiveView::Ftm,
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            app.ondes.champ_suivant(&app.systeme);
+        }
+        KeyCode::Char('w') | KeyCode::Char('W') => {
+            app.ondes.lambda_suivante(&app.systeme);
+        }
+        KeyCode::F(12) => app.changer_langue(crate::i18n::langue().suivante()),
         KeyCode::Up => {
             if app.ligne_selectionnee > 0 {
                 app.ligne_selectionnee -= 1;
@@ -384,14 +402,9 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = AppState::nouveau(OpticalSystem::doublet_achromatique_defaut());
 
-        for vue in [
-            ActiveView::Coupe2D,
-            ActiveView::Filaire3D,
-            ActiveView::SpotDiagram,
-            ActiveView::AberrationSpherique,
-            ActiveView::CatalogueVerres,
-        ] {
+        for vue in ActiveView::TOUTES {
             app.vue_active = vue;
+            app.preparer_vue();
             terminal.draw(|f| dessiner_interface(f, &app)).unwrap();
         }
     }

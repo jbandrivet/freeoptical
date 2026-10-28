@@ -223,7 +223,8 @@ pub fn tracer_rayon_unique(
         let r_radial = (p_local.x * p_local.x + p_local.y * p_local.y).sqrt();
 
         // Mise à jour du chemin optique parcouru depuis l'origine précédente
-        courant.chemin_optique += t.abs() * n_courant;
+        // t est signé : un segment virtuel (surface fictive en arrière) compte négativement
+        courant.chemin_optique += t * n_courant;
 
         let Some(normale) = surface.normale_locale(p_local.x, p_local.y) else {
             courant.vignette = true;

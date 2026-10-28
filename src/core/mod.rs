@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod glass;
+pub mod onde;
 pub mod optimizer;
 pub mod paraxial;
 pub mod presets;
