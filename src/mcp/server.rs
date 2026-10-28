@@ -65,6 +65,16 @@ pub struct SurfacePatchParams {
     pub commentaire: Option<String>,
     /// Définit cette surface comme diaphragme (STOP)
     pub est_diaphragme: Option<bool>,
+    /// Décentrement du sommet [x, y] en mm
+    pub decentrement: Option<[f64; 2]>,
+    /// Inclinaison [autour de X, puis autour de Y] en degrés
+    pub inclinaison_deg: Option<[f64; 2]>,
+    /// Rayon de l'obstruction centrale en mm (0 = aucune)
+    pub rayon_obstruction: Option<f64>,
+    /// Réseau de diffraction : traits par mm (0 = aucun), traits parallèles à X local
+    pub reseau_traits_mm: Option<f64>,
+    /// Ordre de diffraction du réseau
+    pub reseau_ordre: Option<i32>,
 }
 
 /// Paramètres de l'outil MCP `modifier_surface(index, parametres)`
@@ -89,6 +99,13 @@ pub struct OptimiserSystemeParams {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct ImporterTeloptikParams {
     /// Chemin absolu d'un fichier `.TDS` (TDESIGN), `.RLD` (LENSDES) ou `.DES` (RAYTRACE)
+    pub chemin: String,
+}
+
+/// Paramètres de l'outil MCP `importer_catalogue_agf(chemin)`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ImporterCatalogueParams {
+    /// Chemin absolu d'un catalogue de verres Zemax `.agf`
     pub chemin: String,
 }
 
@@ -142,7 +159,17 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 9] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 11] = [
+    (
+        "importer_catalogue_agf",
+        "Imports a Zemax .agf glass catalogue (Schott, Ohara, CDGM…): its glasses become usable by name in every system and are kept for the next starts.",
+        "Importiert einen Zemax-Glaskatalog .agf (Schott, Ohara, CDGM…): seine Gläser sind in jedem System per Name verwendbar und bleiben für spätere Starts erhalten.",
+    ),
+    (
+        "analyser_aberrations",
+        "Geometric aberrations: Seidel coefficients per surface (spherical, coma, astigmatism, Petzval, distortion, axial and lateral colour) with equivalent wave coefficients, field curvature (tangential and sagittal foci) and distortion versus field angle, tangential and sagittal ray fans of a field.",
+        "Geometrische Aberrationen: Seidel-Koeffizienten je Fläche (sphärisch, Koma, Astigmatismus, Petzval, Verzeichnung, Farblängs- und Farbquerfehler) mit äquivalenten Wellenkoeffizienten, Bildfeldwölbung (tangentialer und sagittaler Fokus) und Verzeichnung über dem Feldwinkel, tangentiale und sagittale Strahlfächer eines Feldes.",
+    ),
     (
         "analyser_front_onde",
         "Computes the wavefront (OPD referred to the chief-ray reference sphere at the exit pupil) for a field and a wavelength: peak-to-valley and RMS in waves, Maréchal Strehl and diffraction PSF Strehl, and the 37 Noll Zernike coefficients.",
@@ -333,6 +360,21 @@ impl FreeOpticalMcpServer {
         if let Some(comm) = p.commentaire {
             surf.commentaire = comm;
         }
+        if let Some(v) = p.decentrement {
+            surf.decentrement = v;
+        }
+        if let Some(v) = p.inclinaison_deg {
+            surf.inclinaison_deg = v;
+        }
+        if let Some(v) = p.rayon_obstruction {
+            surf.rayon_obstruction = v.max(0.0);
+        }
+        if let Some(v) = p.reseau_traits_mm {
+            surf.reseau_traits_mm = v;
+        }
+        if let Some(v) = p.reseau_ordre {
+            surf.reseau_ordre = v;
+        }
         if let Some(stop) = p.est_diaphragme {
             surf.est_diaphragme = stop;
         }
@@ -374,6 +416,37 @@ impl FreeOpticalMcpServer {
             }
             Err(e) => serde_json::json!({ "erreur": e }).to_string(),
         }
+    }
+
+    /// Importe un catalogue de verres .agf.
+    #[tool(
+        name = "importer_catalogue_agf",
+        description = "Importe un catalogue de verres Zemax .agf (Schott, Ohara, CDGM…) : ses verres deviennent utilisables par leur nom dans tous les systèmes et sont conservés pour les prochains démarrages."
+    )]
+    pub async fn importer_catalogue_agf(&self, Parameters(params): Parameters<ImporterCatalogueParams>) -> String {
+        match crate::core::glass::importer_catalogue_agf(std::path::Path::new(&params.chemin), true) {
+            Ok(nb) => serde_json::json!({ "verres_importes": nb }).to_string(),
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Seidel, courbure de champ, distorsion et courbes de rayons.
+    #[tool(
+        name = "analyser_aberrations",
+        description = "Aberrations géométriques : coefficients de Seidel par surface (sphérique, coma, astigmatisme, Petzval, distorsion, chromatismes axial et latéral) et coefficients d'onde équivalents, courbure de champ (foyers tangentiel et sagittal) et distorsion en fonction de l'angle de champ, courbes de rayons tangentielle et sagittale d'un champ."
+    )]
+    pub async fn analyser_aberrations(&self, Parameters(params): Parameters<AnalyseOndeParams>) -> String {
+        use crate::core::aberrations::{calculer_courbes_rayons, calculer_courbure_distorsion, calculer_seidel};
+        let sys = self.systeme.lock().unwrap();
+        let champ = sys.champs_deg.get(params.champ_index.unwrap_or(0)).copied().unwrap_or((0.0, 0.0));
+        let lambda = params.longueur_onde_nm.unwrap_or(sys.longueur_onde_ref_nm);
+        let ou_erreur = |r: Result<serde_json::Value, String>| r.unwrap_or_else(|e| serde_json::json!({ "erreur": e }));
+        serde_json::json!({
+            "seidel": ou_erreur(calculer_seidel(&sys).map(|s| serde_json::to_value(s).unwrap_or_default())),
+            "courbure_distorsion": ou_erreur(calculer_courbure_distorsion(&sys, lambda, 11).map(|c| serde_json::to_value(c).unwrap_or_default())),
+            "courbes_rayons": ou_erreur(calculer_courbes_rayons(&sys, champ, 11).map(|c| serde_json::to_value(c).unwrap_or_default())),
+        })
+        .to_string()
     }
 
     /// Front d'onde, Strehl et coefficients de Zernike d'un champ.
@@ -591,6 +664,22 @@ mod tests {
             }))
             .await;
         assert!(res_opt.contains("DLS terminé"));
+    }
+
+    #[tokio::test]
+    async fn test_outil_mcp_aberrations() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let res = srv
+            .analyser_aberrations(Parameters(AnalyseOndeParams { champ_index: Some(1), ..Default::default() }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(json["seidel"]["lignes"].as_array().unwrap().len(), 3);
+        assert!(json["courbure_distorsion"]["distorsion_pct"].is_array(), "{res}");
+        assert!(json["courbes_rayons"]["transverse_t_um"].is_array());
+        let erreur = srv
+            .importer_catalogue_agf(Parameters(ImporterCatalogueParams { chemin: "/inexistant.agf".into() }))
+            .await;
+        assert!(erreur.contains("erreur"));
     }
 
     #[tokio::test]

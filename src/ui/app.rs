@@ -32,6 +32,12 @@ pub enum ActiveView {
     Psf,
     /// Fonction de transfert de modulation (FTM / MTF)
     Ftm,
+    /// Courbes de rayons : aberrations transverses et différence de marche
+    CourbesRayons,
+    /// Courbure de champ et distorsion
+    CourbureChamp,
+    /// Coefficients de Seidel par surface
+    Seidel,
 }
 
 impl ActiveView {
@@ -57,11 +63,26 @@ impl ActiveView {
                 "ANALYSIS: MODULATION TRANSFER FUNCTION (MTF)",
                 "ANALYSE: MODULATIONSÜBERTRAGUNGSFUNKTION (MTF)"
             ),
+            ActiveView::CourbesRayons => tr!(
+                "ANALYSE : COURBES DE RAYONS (ABERRATIONS TRANSVERSES & DIFFÉRENCE DE MARCHE)",
+                "ANALYSIS: RAY FANS (TRANSVERSE ABERRATIONS & OPTICAL PATH DIFFERENCE)",
+                "ANALYSE: STRAHLFÄCHER (QUERABERRATIONEN & OPTISCHE WEGDIFFERENZ)"
+            ),
+            ActiveView::CourbureChamp => tr!(
+                "ANALYSE : COURBURE DE CHAMP & DISTORSION",
+                "ANALYSIS: FIELD CURVATURE & DISTORTION",
+                "ANALYSE: BILDFELDWÖLBUNG & VERZEICHNUNG"
+            ),
+            ActiveView::Seidel => tr!(
+                "ANALYSE : COEFFICIENTS DE SEIDEL PAR SURFACE",
+                "ANALYSIS: SEIDEL COEFFICIENTS PER SURFACE",
+                "ANALYSE: SEIDEL-KOEFFIZIENTEN JE FLÄCHE"
+            ),
         }
     }
 
     /// Toutes les vues, dans l'ordre des touches F1 à F8
-    pub const TOUTES: [ActiveView; 8] = [
+    pub const TOUTES: [ActiveView; 11] = [
         ActiveView::Coupe2D,
         ActiveView::Filaire3D,
         ActiveView::SpotDiagram,
@@ -70,6 +91,9 @@ impl ActiveView {
         ActiveView::FrontOnde,
         ActiveView::Psf,
         ActiveView::Ftm,
+        ActiveView::CourbesRayons,
+        ActiveView::CourbureChamp,
+        ActiveView::Seidel,
     ];
 
     /// Libellé court pour les onglets
@@ -83,6 +107,9 @@ impl ActiveView {
             ActiveView::FrontOnde => tr!("Front d'onde", "Wavefront", "Wellenfront"),
             ActiveView::Psf => tr!("PSF", "PSF", "PSF"),
             ActiveView::Ftm => tr!("FTM", "MTF", "MTF"),
+            ActiveView::CourbesRayons => tr!("Rayons", "Ray fans", "Strahlfächer"),
+            ActiveView::CourbureChamp => tr!("Champ", "Field", "Bildfeld"),
+            ActiveView::Seidel => tr!("Seidel", "Seidel", "Seidel"),
         }
     }
 }
@@ -191,6 +218,9 @@ pub fn items_menu(menu_idx: usize) -> Vec<&'static str> {
             ),
             tr!("7. Tache image de diffraction PSF (F7 / 7)", "7. Diffraction PSF (F7 / 7)", "7. Beugungs-PSF (F7 / 7)"),
             tr!("8. FTM tangentielle & sagittale (F8 / 8)", "8. Tangential & sagittal MTF (F8 / 8)", "8. Tangentiale & sagittale MTF (F8 / 8)"),
+            tr!("9. Courbes de rayons (9)", "9. Ray fans (9)", "9. Strahlfächer (9)"),
+            tr!("10. Courbure de champ & distorsion (0)", "10. Field curvature & distortion (0)", "10. Bildfeldwölbung & Verzeichnung (0)"),
+            tr!("11. Coefficients de Seidel", "11. Seidel coefficients", "11. Seidel-Koeffizienten"),
         ],
         3 => vec![
             tr!(
@@ -486,7 +516,7 @@ impl AppState {
                 poids: 1.0,
             },
             OptimizationTarget {
-                type_cible: "spot_rms".to_string(),
+                type_cible: "spot_rms_champs".to_string(),
                 valeur_cible: 0.0,
                 poids: 2.0,
             },
@@ -547,6 +577,15 @@ impl AppState {
             }
             ActiveView::Ftm => {
                 self.ondes.ftm_champs(&self.systeme);
+            }
+            ActiveView::CourbesRayons => {
+                self.ondes.courbes(&self.systeme);
+            }
+            ActiveView::CourbureChamp => {
+                self.ondes.courbure(&self.systeme);
+            }
+            ActiveView::Seidel => {
+                self.ondes.seidel(&self.systeme);
             }
             _ => {}
         }
@@ -620,6 +659,9 @@ impl AppState {
             (2, 5) => self.vue_active = ActiveView::FrontOnde,
             (2, 6) => self.vue_active = ActiveView::Psf,
             (2, 7) => self.vue_active = ActiveView::Ftm,
+            (2, 8) => self.vue_active = ActiveView::CourbesRayons,
+            (2, 9) => self.vue_active = ActiveView::CourbureChamp,
+            (2, 10) => self.vue_active = ActiveView::Seidel,
             // Menu Outils
             (3, 0) => self.lancer_optimisation_rapide(),
             (3, 1) => self.mise_au_point_paraxiale(),

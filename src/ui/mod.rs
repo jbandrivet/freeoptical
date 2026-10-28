@@ -126,9 +126,9 @@ fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
 
     spans.push(Span::styled(
         tr!(
-            "  [F1-F8:Vues  C:Champ  W:λ  F10/M:Menu  F12:Langue]",
-            "  [F1-F8:Views  C:Field  W:λ  F10/M:Menu  F12:Language]",
-            "  [F1-F8:Ansichten  C:Feld  W:λ  F10/M:Menü  F12:Sprache]"
+            "  [1-9,0:Vues  C:Champ  W:λ  F10/M:Menu  F12:Langue]",
+            "  [1-9,0:Views  C:Field  W:λ  F10/M:Menu  F12:Language]",
+            "  [1-9,0:Ansichten  C:Feld  W:λ  F10/M:Menü  F12:Sprache]"
         ),
         Style::default().bg(DOS_BAR_BG).fg(Color::Rgb(60, 60, 60)),
     ));
@@ -151,6 +151,9 @@ fn dessiner_zone_inferieure(f: &mut Frame, zone: Rect, app: &AppState) {
         ActiveView::FrontOnde => ondes_view::dessiner_front_onde(f, interieur, app),
         ActiveView::Psf => ondes_view::dessiner_psf(f, interieur, app),
         ActiveView::Ftm => ondes_view::dessiner_ftm(f, interieur, app),
+        ActiveView::CourbesRayons => ondes_view::dessiner_courbes_rayons(f, interieur, app),
+        ActiveView::CourbureChamp => ondes_view::dessiner_courbure_champ(f, interieur, app),
+        ActiveView::Seidel => ondes_view::dessiner_seidel(f, interieur, app),
     }
 }
 
@@ -329,6 +332,8 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
         KeyCode::F(6) | KeyCode::Char('6') => app.vue_active = ActiveView::FrontOnde,
         KeyCode::F(7) | KeyCode::Char('7') => app.vue_active = ActiveView::Psf,
         KeyCode::F(8) | KeyCode::Char('8') => app.vue_active = ActiveView::Ftm,
+        KeyCode::F(9) | KeyCode::Char('9') => app.vue_active = ActiveView::CourbesRayons,
+        KeyCode::Char('0') => app.vue_active = ActiveView::CourbureChamp,
         KeyCode::Char('c') | KeyCode::Char('C') => {
             app.ondes.champ_suivant(&app.systeme);
         }

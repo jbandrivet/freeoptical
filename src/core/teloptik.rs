@@ -280,7 +280,7 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         .collect();
     if !non_centrees.is_empty() {
         return Err(trf!(
-            "surface(s) {} basculée(s) ou décentrée(s) : FreeOptical ne gère pas encore les systèmes non centrés, l'import fausserait le système", "surface(s) {} tilted or decentered: FreeOptical does not handle non-centered systems yet, importing would distort the system", "Fläche(n) {} gekippt oder dezentriert: FreeOptical unterstützt noch keine nicht zentrierten Systeme, der Import würde das System verfälschen",
+            "surface(s) {} basculée(s) ou décentrée(s) : la convention de placement de RAYTRACE n'est pas connue avec certitude, l'import pourrait fausser le système (à reconstruire avec les champs Décentr. et Incl. de l'éditeur)", "surface(s) {} tilted or decentered: RAYTRACE's placement convention is not known for certain, importing could distort the system (rebuild it with the Decenter and Tilt fields of the editor)", "Fläche(n) {} gekippt oder dezentriert: die Platzierungskonvention von RAYTRACE ist nicht sicher bekannt, der Import könnte das System verfälschen (mit den Feldern Dezentr. und Kipp. des Editors nachbauen)",
             non_centrees.join(", ")
         ));
     }
@@ -394,8 +394,13 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         }
 
         if s.diametre_obstruction > 0.0 {
-            commentaire.push_str(&trf!(" — obstruction Ø{} non modélisée", " — Ø{} obstruction not modelled", " — Obstruktion Ø{} nicht modelliert", s.diametre_obstruction));
-            obstructions.push(format!("{} (Ø{})", i + 1, s.diametre_obstruction));
+            if vignettage_actif {
+                // RAYTRACE arrêtait les rayons dans ce diamètre : obstruction centrale
+                surf.rayon_obstruction = 0.5 * s.diametre_obstruction;
+                commentaire.push_str(&format!(" — obstruction Ø{}", s.diametre_obstruction));
+            } else {
+                obstructions.push(format!("{} (Ø{})", i + 1, s.diametre_obstruction));
+            }
         }
         surf.commentaire = commentaire;
         if s.code == 8 && index_stop.is_none() {
@@ -407,7 +412,7 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
 
     if !obstructions.is_empty() {
         avertissements.push(trf!(
-            "Obstructions centrales ignorées (non gérées par FreeOptical), surfaces {} : le spot diagram inclut les rayons centraux.", "Central obstructions ignored (not handled by FreeOptical), surfaces {}: the spot diagram includes the central rays.", "Zentrale Obstruktionen ignoriert (von FreeOptical nicht unterstützt), Flächen {}: das Spotdiagramm enthält die zentralen Strahlen.",
+            "Obstructions centrales non reprises car le vignettage était désactivé dans RAYTRACE, surfaces {} (elles se règlent dans la ligne Obstr. r de l'éditeur).", "Central obstructions not imported because vignetting was off in RAYTRACE, surfaces {} (set them in the Obstr. r field of the editor).", "Zentrale Obstruktionen nicht übernommen, da die Vignettierung in RAYTRACE aus war, Flächen {} (im Feld Obstr. r des Editors einstellbar).",
             obstructions.join(", ")
         ));
     }

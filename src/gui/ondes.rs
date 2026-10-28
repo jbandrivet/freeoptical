@@ -43,7 +43,7 @@ fn palette_psf(t: f64) -> Color32 {
     Color32::from_rgb((c.r() as f32 * b) as u8, (c.g() as f32 * b) as u8, (c.b() as f32 * b) as u8)
 }
 
-fn libelle_champ(c: (f64, f64)) -> String {
+pub(super) fn libelle_champ(c: (f64, f64)) -> String {
     if c.0.abs() < 1e-12 {
         format!("{:.2}°", c.1)
     } else {
@@ -53,7 +53,7 @@ fn libelle_champ(c: (f64, f64)) -> String {
 
 impl FreeOpticalGuiApp {
     /// Sélecteurs de champ et de longueur d'onde communs aux trois analyses
-    fn selecteurs_ondes(&mut self, ui: &mut egui::Ui, poly_permis: bool) {
+    pub(super) fn selecteurs_ondes(&mut self, ui: &mut egui::Ui, poly_permis: bool) {
         let sys = &self.systeme;
         let mut champ = self.ondes.champ.min(sys.champs_deg.len().saturating_sub(1));
         let mut lambda = self.ondes.lambda;
@@ -94,7 +94,7 @@ impl FreeOpticalGuiApp {
         }
     }
 
-    fn afficher_erreur_onde(ui: &mut egui::Ui, e: &str) {
+    pub(super) fn afficher_erreur_onde(ui: &mut egui::Ui, e: &str) {
         ui.add_space(20.0);
         ui.label(
             RichText::new(trf!("Calcul impossible : {}", "Cannot compute: {}", "Berechnung unmöglich: {}", e))

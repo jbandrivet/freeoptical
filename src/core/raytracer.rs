@@ -195,6 +195,34 @@ pub fn snell_descartes_3d(
     Some(refracte.normalize())
 }
 
+/// Équation vectorielle des réseaux : la composante tangentielle de `n·d` augmente de
+/// `k = m λ N` (ordre × longueur d'onde en mm × traits par mm) selon la direction `g` des
+/// sillons croisés (perpendiculaire aux traits), la composante normale assure |d'| = 1.
+/// Avec `k = 0` on retrouve la réfraction ou la réflexion ordinaire. `None` : ordre évanescent.
+pub fn diffraction_reseau_3d(
+    d: &Vec3,
+    normale: &Vec3,
+    g: &Vec3,
+    n1: f64,
+    n2: f64,
+    est_miroir: bool,
+    k: f64,
+) -> Option<Vec3> {
+    let n = normale.normalize();
+    let cos_i = d.dot(&n);
+    let tangent_g = g - g.dot(&n) * n;
+    let g_t = if tangent_g.norm() > 1e-12 { tangent_g.normalize() } else { return None };
+    let t_sortie = n1 * (d - cos_i * n) + k * g_t;
+    let n_sortie = if est_miroir { n1 } else { n2 };
+    let reste = n_sortie * n_sortie - t_sortie.norm_squared();
+    if reste < 0.0 {
+        return None;
+    }
+    let signe = if cos_i >= 0.0 { 1.0 } else { -1.0 };
+    let composante_normale = if est_miroir { -signe } else { signe } * reste.sqrt();
+    Some(((t_sortie + composante_normale * n) / n_sortie).normalize())
+}
+
 /// Trace séquentiellement un rayon unique à travers toutes les surfaces du système optique
 pub fn tracer_rayon_unique(
     systeme: &OpticalSystem,
@@ -210,26 +238,31 @@ pub fn tracer_rayon_unique(
     let nb_surfaces = systeme.surfaces.len();
 
     for (idx, (surface, &z_sommet)) in systeme.surfaces.iter().zip(positions_z.iter()).enumerate() {
-        let sommet_global = Point3::new(0.0, 0.0, z_sommet);
-        let p0_local = Point3::from(courant.origine - sommet_global.coords);
+        // Repère local de la surface : sommet décentré, axes inclinés
+        let sommet_global = surface.sommet_global(z_sommet);
+        let rotation = surface.rotation();
+        let inverse = rotation.inverse();
+        let p0_local = Point3::from(inverse * (courant.origine - sommet_global));
+        let dir_local = inverse * courant.direction;
 
-        let Some(t) = intersecter_surface_locale(&p0_local, &courant.direction, surface) else {
+        let Some(t) = intersecter_surface_locale(&p0_local, &dir_local, surface) else {
             courant.vignette = true;
             break;
         };
 
-        let p_local = p0_local + t * courant.direction;
-        let p_global = Point3::new(p_local.x, p_local.y, p_local.z + z_sommet);
+        let p_local = p0_local + t * dir_local;
+        let p_global = sommet_global + rotation * p_local.coords;
         let r_radial = (p_local.x * p_local.x + p_local.y * p_local.y).sqrt();
 
         // Mise à jour du chemin optique parcouru depuis l'origine précédente
         // t est signé : un segment virtuel (surface fictive en arrière) compte négativement
         courant.chemin_optique += t * n_courant;
 
-        let Some(normale) = surface.normale_locale(p_local.x, p_local.y) else {
+        let Some(normale_locale) = surface.normale_locale(p_local.x, p_local.y) else {
             courant.vignette = true;
             break;
         };
+        let normale = rotation * normale_locale;
 
         let mat_apres = systeme.catalogue.resoudre(&surface.verre);
         let est_miroir = mat_apres.est_miroir();
@@ -237,7 +270,8 @@ pub fn tracer_rayon_unique(
 
         // Vérification du vignettage mécanique par le demi-diamètre
         // (le plan image n'arrête aucun rayon : son demi-diamètre ne sert qu'à l'affichage)
-        let hors_ouverture = !est_plan_image && r_radial > surface.semi_diametre + 1e-6;
+        let hors_ouverture = !est_plan_image
+            && (r_radial > surface.semi_diametre + 1e-6 || r_radial < surface.rayon_obstruction);
 
         let n_apres = if est_miroir {
             n_courant
@@ -249,7 +283,20 @@ pub fn tracer_rayon_unique(
             // Sur le plan image, le rayon s'arrête sans nouvelle réfraction
             courant.direction
         } else {
-            match snell_descartes_3d(&courant.direction, &normale, n_courant, n_apres, est_miroir) {
+            let sortie = if surface.reseau_traits_mm != 0.0 && surface.reseau_ordre != 0 {
+                diffraction_reseau_3d(
+                    &courant.direction,
+                    &normale,
+                    &(rotation * Vec3::new(0.0, 1.0, 0.0)),
+                    n_courant,
+                    n_apres,
+                    est_miroir,
+                    surface.reseau_ordre as f64 * courant.longueur_onde_nm * 1e-6 * surface.reseau_traits_mm,
+                )
+            } else {
+                snell_descartes_3d(&courant.direction, &normale, n_courant, n_apres, est_miroir)
+            };
+            match sortie {
                 Some(d) => d,
                 None => {
                     // Réflexion totale interne non désirée
@@ -509,6 +556,49 @@ mod tests {
 
         let rapport = optimiser_systeme_dls(&mut sys, &vars, &cibles, 8);
         assert!(rapport.merite_final <= rapport.merite_initial);
+    }
+
+    #[test]
+    fn reseau_de_diffraction() {
+        use crate::core::types::{Surface, SurfaceType};
+        let n = Vec3::new(0.0, 0.0, 1.0);
+        let g = Vec3::new(0.0, 1.0, 0.0);
+        // k = 0 : réfraction ordinaire
+        let d = Vec3::new(0.1, 0.2, 1.0).normalize();
+        let a = diffraction_reseau_3d(&d, &n, &g, 1.0, 1.5, false, 0.0).unwrap();
+        let b = snell_descartes_3d(&d, &n, 1.0, 1.5, false).unwrap();
+        assert!((a - b).norm() < 1e-12);
+        // Réseau en transmission 300 traits/mm, incidence normale, ordre 1 : sin θ = λ N
+        let k = 587.5618e-6 * 300.0;
+        let t = diffraction_reseau_3d(&Vec3::new(0.0, 0.0, 1.0), &n, &g, 1.0, 1.0, false, k).unwrap();
+        assert!((t.y - k).abs() < 1e-12 && t.z > 0.0);
+        // Montage de Littrow en réflexion (1200 traits/mm) : le rayon revient sur lui-même
+        let k = 587.5618e-6 * 1200.0;
+        let s = k / 2.0;
+        let d = Vec3::new(0.0, -s, -(1.0 - s * s).sqrt());
+        let r = diffraction_reseau_3d(&d, &n, &g, 1.0, 1.0, true, k).unwrap();
+        assert!((r + d).norm() < 1e-12, "{r:?}");
+        // Ordre évanescent
+        assert!(diffraction_reseau_3d(&Vec3::new(0.0, 0.0, 1.0), &n, &g, 1.0, 1.0, false, 1.2).is_none());
+
+        // Dans le lancer de rayons : réseau plan puis plan image à 100 mm
+        let mut reseau = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 100.0, "AIR", 20.0);
+        reseau.reseau_traits_mm = 300.0;
+        reseau.reseau_ordre = 1;
+        reseau.est_diaphragme = true;
+        let sys = OpticalSystem {
+            surfaces: vec![reseau, Surface::plan_image(50.0)],
+            ..OpticalSystem::nouveau("réseau", 587.5618)
+        };
+        let tr = tracer_rayon_unique(
+            &sys,
+            Ray::nouveau(Point3::new(0.0, 0.0, -10.0), Vec3::new(0.0, 0.0, 1.0), 587.5618),
+            (0.0, 0.0),
+            (0.0, 0.0),
+        );
+        let y = tr.impact_plan_image().unwrap().point_global.y;
+        let sin: f64 = 587.5618e-6 * 300.0;
+        assert!((y - 100.0 * sin / (1.0 - sin * sin).sqrt()).abs() < 1e-9, "y = {y}");
     }
 }
 

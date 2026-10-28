@@ -9,7 +9,7 @@
 **Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**
 
 FreeOptical permet de concevoir n'importe quel système optique (objectif, lunette, télescope à miroirs, montage de test…) surface par surface, puis de l'analyser et de l'optimiser. Il est écrit en **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) et combine :
-1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, dispersion chromatique $n_d / V_d$, spot diagram polychromatique, aberration sphérique longitudinale, différence de marche (OPD) et front d'onde avec polynômes de Zernike, rapport de Strehl, PSF et FTM de diffraction, et optimisation Damped Least Squares.
+1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, surfaces basculées et décentrées (systèmes repliés), obstructions centrales, réseaux de diffraction, vrais verres (formules de Sellmeier, catalogues Zemax `.agf` Schott, Ohara, CDGM…), spot diagram polychromatique, aberration sphérique longitudinale, différence de marche (OPD) et front d'onde avec polynômes de Zernike, rapport de Strehl, PSF et FTM de diffraction, courbes de rayons, courbure de champ, distorsion, coefficients de Seidel, et optimisation Damped Least Squares sur tous les champs et toutes les couleurs.
 2. **Une interface graphique et une interface terminal (`--tui`) en français, en anglais ou en allemand** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA, catalogue de verres, front d'onde, PSF et FTM. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
 3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques.
 
@@ -52,7 +52,8 @@ freeoptical --langue fr
 - **`F6` / `6`** : Vue 6 — Front d'onde (OPD), coefficients de Zernike et Strehl
 - **`F7` / `7`** : Vue 7 — Tache image de diffraction (PSF)
 - **`F8` / `8`** : Vue 8 — FTM tangentielle et sagittale de tous les champs
-- **`C`** / **`W`** : Champ suivant / longueur d'onde suivante pour les vues 6 à 8
+- **`9`** : Courbes de rayons (aberrations transverses) ; **`0`** : Courbure de champ et distorsion ; coefficients de Seidel par le menu `Analyse`
+- **`C`** / **`W`** : Champ suivant / longueur d'onde suivante pour les vues d'analyse
 - **`I` / `Ins`** : Insérer une surface avant la ligne sélectionnée
 - **`A`** : Ajouter une surface avant le Plan Image
 - **`Suppr` / `X`** : Supprimer la surface sélectionnée
@@ -70,6 +71,19 @@ Dans la fenêtre graphique, le menu `Fichier` sauvegarde et recharge `systeme_op
 Le bouton **`Mise à jour`** (en bas à droite, ou menu `Outils`) cherche la dernière version publiée sur GitHub ; si elle est plus récente, il télécharge le paquet `.deb`, vérifie son empreinte SHA-256 et l'installe avec `apt-get` (le mot de passe administrateur est demandé par `pkexec`), puis propose de redémarrer FreeOptical.
 Les coefficients asphériques A4, A6, A8, A10 de la surface sélectionnée s'éditent sur la ligne au-dessus du tableau LDE (glisser : 0,1 µm de flèche au bord par pixel ; clic : saisie directe, ex. `2.1e-7`) ; modifier un coefficient passe la surface en type `ASPHERIQUE`.
 
+#### Fenêtre graphique : vues et réglages
+- Onglets **F1** à **F11** sous l'éditeur : coupe 2D, vue 3D, spot, LSA, verres, front d'onde, PSF, FTM, **courbes de rayons** (aberrations transverses et différence de marche le long des coupes tangentielle et sagittale), **courbure de champ et distorsion**, **coefficients de Seidel** par surface.
+- Sous les coefficients asphériques, la ligne de la surface sélectionnée règle son **décentrement** (X, Y), son **inclinaison** (autour de X puis de Y, en degrés, autour du sommet), le rayon de son **obstruction centrale** et un **réseau de diffraction** (traits par mm, ordre).
+- Le bouton **Optimiser DLS** ouvre la fonction de mérite : variables (rayons, épaisseurs des lentilles, espaces d'air, tirage, coniques, asphériques A4/A6), critère (spot RMS ou front d'onde RMS sur tous les champs et toutes les longueurs d'onde), focale cible et contraintes (épaisseurs au bord et au centre, longueur totale, distorsion).
+
+#### Verres
+Les verres intégrés (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, silice fondue, fluorine CaF2) suivent leurs formules de Sellmeier ; leurs anciens noms (BK7, SF11…) restent acceptés. Les catalogues Zemax **`.agf`** (Schott, Ohara, CDGM, Sumita…, en ANSI ou UTF-16) s'importent par le menu `Fichier`, par glisser-déposer, par `--catalogue fichier.agf` ou par l'outil MCP `importer_catalogue_agf` ; ils sont conservés dans `~/.config/freeoptical/verres` et rechargés à chaque démarrage. La syntaxe `nd:Vd` reste disponible pour un verre modèle.
+
+#### Surfaces basculées, obstructions et réseaux
+- Chaque surface est placée à la position axiale donnée par les épaisseurs, puis décentrée et inclinée autour de son sommet ; le lancer de rayons est exact en 3D (Newton replié par un miroir plan à 45°, Schiefspiegler, spectrographe…). Les calculs paraxiaux (focale, pupilles, Seidel) ignorent les bascules et les réseaux.
+- Une obstruction centrale arrête les rayons qui passent à moins de son rayon de l'axe de la surface ; le spot, le front d'onde, la PSF et la FTM en tiennent compte (le rayon principal de référence est tracé sans obstruction).
+- Réseau de diffraction : équation vectorielle des réseaux, traits parallèles à l'axe X local de la surface, un ordre positif dévie la lumière vers +Y local ; en réflexion sur un miroir, en transmission sinon.
+
 #### Analyses ondulatoires : front d'onde, PSF et FTM
 Les vues `F6`, `F7` et `F8` (fenêtre graphique et TUI) s'appliquent au champ et à la longueur d'onde choisis (ou à toutes les longueurs d'onde pondérées).
 - **Front d'onde** : différence de marche rapportée à la sphère de référence centrée sur l'image du rayon principal et passant par la pupille de sortie paraxiale (convention de Zemax), positive quand le chemin optique du rayon est plus long ; crête-à-creux, RMS, Strehl de Maréchal et 37 coefficients de Zernike (normalisation et ordre de Noll).
@@ -81,7 +95,7 @@ Les vues `F6`, `F7` et `F8` (fenêtre graphique et TUI) s'appliquent au champ et
 FreeOptical lit les fichiers de conception des programmes du livre *Telescope Optics: Evaluation and Design* (H. G. J. Rutten et M. A. M. van Venrooij, Willmann-Bell, 1988) : `.TDS` (TDESIGN, télescopes à miroirs et catadioptriques), `.RLD` (LENSDES, objectifs de lunette) et `.DES` (RAYTRACE). Menu `Fichier` → `Importer TDESIGN / LENSDES / RAYTRACE`, option `--fichier`, ou outil MCP `importer_teloptik`.
 - Sont repris : sphères, coniques, asphères (coefficients en r² à r¹⁰), lames de Schmidt définies par leur puissance relative et leur zone neutre (profil du 3e ordre), miroirs (changement de signe de l'indice, y compris dans le verre d'un Mangin), décalages axiaux, indices N1/N2/N3 convertis en verre `nd:Vd`, diamètres limites quand le vignettage était activé dans RAYTRACE.
 - Le plan image est placé au foyer paraxial et les demi-diamètres sont calculés pour laisser passer le faisceau sur l'axe et à 0,5° de champ.
-- Les obstructions centrales sont ignorées (signalées) ; les systèmes basculés ou décentrés sont refusés, FreeOptical ne gérant pas encore les surfaces non centrées.
+- Les obstructions centrales sont reprises quand le vignettage était activé dans RAYTRACE ; les fichiers basculés ou décentrés sont refusés, la convention de placement de RAYTRACE n'étant pas connue avec certitude.
 - La focale inscrite dans l'en-tête est comparée à la focale recalculée : elles coïncident pour les fichiers enregistrés par RAYTRACE ; les avant-projets de TDESIGN gardent la focale visée, sans la puissance du correcteur.
 
 #### Conventions optiques
@@ -108,6 +122,9 @@ freeoptical --mcp
 - `importer_teloptik(chemin)` : Importe un fichier `.TDS`, `.RLD` ou `.DES` (TDESIGN, LENSDES, RAYTRACE) comme système courant.
 - `analyser_front_onde(champ_index, longueur_onde_nm)` : Front d'onde d'un champ : crête-à-creux, RMS, Strehl (Maréchal et PSF), 37 coefficients de Zernike.
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)` : FTM tangentielle et sagittale, limite de diffraction et Strehl de la PSF.
+- `analyser_aberrations(champ_index, longueur_onde_nm)` : coefficients de Seidel par surface, courbure de champ et distorsion, courbes de rayons.
+- `importer_catalogue_agf(chemin)` : importe un catalogue de verres Zemax `.agf`.
+- `modifier_surface` accepte aussi `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` et `reseau_ordre` ; `optimiser_systeme` accepte les variables `a4` à `a10` et les cibles `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---
 

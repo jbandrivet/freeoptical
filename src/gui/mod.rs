@@ -2,6 +2,8 @@
 //! avec esthétique rétro MS-DOS / CAO Zemax, rendu vectoriel haute résolution 2D/3D
 //! et contrôle interactif à la souris et au clavier.
 
+mod aberrations;
+mod optimisation;
 mod ondes;
 
 use crate::{
@@ -164,6 +166,11 @@ fn est_cube_separateur(sys: &OpticalSystem, surf: &Surface) -> bool {
 }
 
 /// Vrai si le milieu qui suit la surface est un verre réfractif (lentille ou cube)
+/// Catalogue de verres Zemax (.agf)
+fn est_catalogue_agf(chemin: &Path) -> bool {
+    chemin.extension().is_some_and(|e| e.eq_ignore_ascii_case("agf"))
+}
+
 fn est_verre(sys: &OpticalSystem, surf: &Surface) -> bool {
     matches!(sys.catalogue.resoudre(&surf.verre).kind, MediumKind::Verre { .. })
 }
@@ -274,6 +281,8 @@ pub struct FreeOpticalGuiApp {
     pub psf_log: bool,
     /// Demi-largeur de la PSF affichée, en rayons d'Airy
     pub psf_zoom: f32,
+    pub fenetre_optim: bool,
+    pub reglages_optim: optimisation::ReglagesOptimisation,
     /// Résultat du dernier import (réussi, message, avertissements) affiché dans la fenêtre d'import
     pub bilan_import: Option<(bool, String, Vec<String>)>,
 }
@@ -309,6 +318,8 @@ impl FreeOpticalGuiApp {
             textures_ondes: ondes::TexturesOndes::default(),
             psf_log: false,
             psf_zoom: 8.0,
+            fenetre_optim: false,
+            reglages_optim: optimisation::ReglagesOptimisation::default(),
             dossier_import: std::env::current_dir()
                 .map(|d| d.display().to_string())
                 .unwrap_or_default(),
@@ -338,6 +349,25 @@ impl FreeOpticalGuiApp {
     /// Ouvre un fichier système : `.json` FreeOptical, ou `.TDS` / `.RLD` / `.DES` des programmes
     /// TDESIGN, LENSDES et RAYTRACE (Rutten et van Venrooij)
     pub fn ouvrir_fichier(&mut self, chemin: &Path) {
+        if est_catalogue_agf(chemin) {
+            let (reussi, msg) = match crate::core::glass::importer_catalogue_agf(chemin, true) {
+                Ok(nb) => (
+                    true,
+                    trf!(
+                        "Catalogue {} importé : {} verres, disponibles dans la colonne Verre et à chaque démarrage.",
+                        "Catalogue {} imported: {} glasses, available in the Glass column and at every start.",
+                        "Katalog {} importiert: {} Gläser, verfügbar in der Spalte Glas und bei jedem Start.",
+                        chemin.display(),
+                        nb
+                    ),
+                ),
+                Err(e) => (false, trf!("ÉCHEC de l'import : {}", "Import FAILED: {}", "Import FEHLGESCHLAGEN: {}", e)),
+            };
+            self.statut_message = msg.clone();
+            self.bilan_import = Some((reussi, msg, Vec::new()));
+            self.recalculer();
+            return;
+        }
         if est_fichier_teloptik(chemin) {
             match importer_fichier_teloptik(chemin) {
                 Ok(import) => {
@@ -394,7 +424,7 @@ impl FreeOpticalGuiApp {
         let mut a_ouvrir: Option<PathBuf> = None;
         let mut fermer = false;
         egui::Window::new(
-            RichText::new(tr!(" Importer TDESIGN / LENSDES / RAYTRACE ", " Import TDESIGN / LENSDES / RAYTRACE ", " TDESIGN / LENSDES / RAYTRACE importieren ")).monospace().strong(),
+            RichText::new(tr!(" Importer des systèmes ou des catalogues de verres ", " Import systems or glass catalogues ", " Systeme oder Glaskataloge importieren ")).monospace().strong(),
         )
         .open(&mut ouverte)
         .collapsible(false)
@@ -404,12 +434,15 @@ impl FreeOpticalGuiApp {
         .show(ctx, |ui| {
             ui.label(
                 tr!(
-                    "Fichiers .TDS, .RLD et .DES des programmes du livre « Telescope Optics » \
-                     (Rutten et van Venrooij). On peut aussi glisser un fichier sur la fenêtre.",
-                    ".TDS, .RLD and .DES files from the programs of the book \"Telescope Optics\" \
-                     (Rutten and van Venrooij). You can also drop a file onto the window.",
-                    ".TDS-, .RLD- und .DES-Dateien der Programme aus dem Buch „Telescope Optics“ \
-                     (Rutten und van Venrooij). Eine Datei kann auch auf das Fenster gezogen werden."
+                    "Systèmes .TDS, .RLD et .DES des programmes du livre « Telescope Optics » \
+                     (Rutten et van Venrooij), ou catalogues de verres Zemax .agf (Schott, Ohara, \
+                     CDGM…). On peut aussi glisser un fichier sur la fenêtre.",
+                    ".TDS, .RLD and .DES systems from the programs of the book \"Telescope Optics\" \
+                     (Rutten and van Venrooij), or Zemax .agf glass catalogues (Schott, Ohara, \
+                     CDGM…). You can also drop a file onto the window.",
+                    ".TDS-, .RLD- und .DES-Systeme der Programme aus dem Buch „Telescope Optics“ \
+                     (Rutten und van Venrooij) oder Zemax-Glaskataloge .agf (Schott, Ohara, \
+                     CDGM…). Eine Datei kann auch auf das Fenster gezogen werden."
                 ),
             );
             ui.add_space(4.0);
@@ -421,7 +454,7 @@ impl FreeOpticalGuiApp {
             let mut fichiers: Vec<PathBuf> = std::fs::read_dir(&dossier)
                 .map(|it| {
                     it.filter_map(|e| e.ok().map(|e| e.path()))
-                        .filter(|p| est_fichier_teloptik(p))
+                        .filter(|p| est_fichier_teloptik(p) || est_catalogue_agf(p))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -429,7 +462,7 @@ impl FreeOpticalGuiApp {
             ui.add_space(4.0);
             if fichiers.is_empty() {
                 ui.label(
-                    RichText::new(tr!("Aucun fichier .TDS / .RLD / .DES dans ce dossier.", "No .TDS / .RLD / .DES file in this folder.", "Keine .TDS- / .RLD- / .DES-Datei in diesem Ordner.")).color(COL_DOS_ORANGE),
+                    RichText::new(tr!("Aucun fichier .TDS / .RLD / .DES / .agf dans ce dossier.", "No .TDS / .RLD / .DES / .agf file in this folder.", "Keine .TDS- / .RLD- / .DES- / .agf-Datei in diesem Ordner.")).color(COL_DOS_ORANGE),
                 );
             } else {
                 egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
@@ -483,45 +516,6 @@ impl FreeOpticalGuiApp {
                 e
             ),
         };
-    }
-
-    pub fn optimiser_dls(&mut self) {
-        let cible_focale = if self.paraxial.focale_effl_mm.is_finite() {
-            self.paraxial.focale_effl_mm
-        } else {
-            100.0
-        };
-        let mut vars = Vec::new();
-        let n = self.systeme.surfaces.len();
-        for i in 0..n.saturating_sub(1) {
-            if self.systeme.surfaces[i].type_surface != SurfaceType::Plane {
-                vars.push(OptimizationVariable {
-                    index_surface: i,
-                    parametre: "rayon".to_string(),
-                });
-            }
-        }
-        if n >= 2 {
-            vars.push(OptimizationVariable {
-                index_surface: n - 2,
-                parametre: "epaisseur".to_string(),
-            });
-        }
-        let cibles = vec![
-            OptimizationTarget {
-                type_cible: "focale".to_string(),
-                valeur_cible: cible_focale,
-                poids: 1.0,
-            },
-            OptimizationTarget {
-                type_cible: "spot_rms".to_string(),
-                valeur_cible: 0.0,
-                poids: 2.5,
-            },
-        ];
-        let rapport = optimiser_systeme_dls(&mut self.systeme, &vars, &cibles, 18);
-        self.recalculer();
-        self.statut_message = rapport.resume;
     }
 
     pub fn mise_au_point_paraxiale(&mut self) {
@@ -761,6 +755,12 @@ impl eframe::App for FreeOpticalGuiApp {
                 self.vue_active = ActiveView::Psf;
             } else if i.key_pressed(Key::F8) {
                 self.vue_active = ActiveView::Ftm;
+            } else if i.key_pressed(Key::F9) {
+                self.vue_active = ActiveView::CourbesRayons;
+            } else if i.key_pressed(Key::F10) {
+                self.vue_active = ActiveView::CourbureChamp;
+            } else if i.key_pressed(Key::F11) {
+                self.vue_active = ActiveView::Seidel;
             }
         });
 
@@ -833,7 +833,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             ui.close();
                         }
                         if ui
-                            .button(tr!("6. Importer TDESIGN / LENSDES / RAYTRACE (.TDS, .RLD, .DES)…", "6. Import TDESIGN / LENSDES / RAYTRACE (.TDS, .RLD, .DES)…", "6. TDESIGN / LENSDES / RAYTRACE importieren (.TDS, .RLD, .DES)…"))
+                            .button(tr!("6. Importer TDESIGN / LENSDES / RAYTRACE ou un catalogue de verres (.agf)…", "6. Import TDESIGN / LENSDES / RAYTRACE or a glass catalogue (.agf)…", "6. TDESIGN / LENSDES / RAYTRACE oder Glaskatalog (.agf) importieren…"))
                             .clicked()
                         {
                             self.bilan_import = None;
@@ -973,7 +973,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             .button(tr!("Optimiser le système (Damped Least Squares - DLS)", "Optimize the system (Damped Least Squares - DLS)", "System optimieren (Damped Least Squares - DLS)"))
                             .clicked()
                         {
-                            self.optimiser_dls();
+                            self.ouvrir_optimisation();
                             ui.close();
                         }
                         if ui
@@ -1019,7 +1019,7 @@ impl eframe::App for FreeOpticalGuiApp {
                         )
                         .clicked()
                     {
-                        self.optimiser_dls();
+                        self.ouvrir_optimisation();
                     }
                 });
             });
@@ -1145,11 +1145,15 @@ impl eframe::App for FreeOpticalGuiApp {
                     ActiveView::FrontOnde => self.dessiner_front_onde(ui),
                     ActiveView::Psf => self.dessiner_psf(ui),
                     ActiveView::Ftm => self.dessiner_ftm(ui),
+                    ActiveView::CourbesRayons => self.dessiner_courbes_rayons(ui),
+                    ActiveView::CourbureChamp => self.dessiner_courbure_champ(ui),
+                    ActiveView::Seidel => self.dessiner_seidel(ui),
                 });
             });
 
         self.dessiner_fenetre_maj(&ctx);
         self.dessiner_fenetre_import(&ctx);
+        self.dessiner_fenetre_optimisation(&ctx);
 
         // Glisser-déposer d'un fichier système (.json, .TDS, .RLD, .DES) sur la fenêtre
         let depose = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| {
@@ -1158,7 +1162,7 @@ impl eframe::App for FreeOpticalGuiApp {
         }));
         if let Some(chemin) = depose {
             self.ouvrir_fichier(&chemin);
-            if est_fichier_teloptik(&chemin) {
+            if est_fichier_teloptik(&chemin) || est_catalogue_agf(&chemin) {
                 self.fenetre_import = true;
             }
         }
@@ -1275,6 +1279,32 @@ impl FreeOpticalGuiApp {
                                 .color(COL_DOS_GRAY),
                         );
                     }
+                });
+                ui.add_space(2.0);
+                // Position, obstruction et réseau de la surface sélectionnée
+                let surf = &mut self.systeme.surfaces[idx_sel];
+                ui.horizontal_wrapped(|ui| {
+                    let mut champ = |ui: &mut egui::Ui, libelle: &str, v: &mut f64, pas: f64, aide: &str| {
+                        ui.label(RichText::new(libelle).monospace().color(COL_DOS_CYAN));
+                        if ui
+                            .add(egui::DragValue::new(v).speed(pas).max_decimals(4))
+                            .on_hover_text(aide)
+                            .changed()
+                        {
+                            modifie = true;
+                        }
+                    };
+                    champ(ui, tr!("Décentr. X", "Decenter X", "Dezentr. X"), &mut surf.decentrement[0], 0.1, tr!("Décentrement du sommet en X (mm)", "Vertex decenter in X (mm)", "Dezentrierung des Scheitels in X (mm)"));
+                    champ(ui, "Y", &mut surf.decentrement[1], 0.1, tr!("Décentrement du sommet en Y (mm)", "Vertex decenter in Y (mm)", "Dezentrierung des Scheitels in Y (mm)"));
+                    champ(ui, tr!("Incl. X°", "Tilt X°", "Kipp. X°"), &mut surf.inclinaison_deg[0], 0.1, tr!("Rotation autour de X (degrés)", "Rotation about X (degrees)", "Drehung um X (Grad)"));
+                    champ(ui, "Y°", &mut surf.inclinaison_deg[1], 0.1, tr!("Rotation autour de Y, après X (degrés)", "Rotation about Y, after X (degrees)", "Drehung um Y, nach X (Grad)"));
+                    champ(ui, tr!("Obstr. r", "Obstr. r", "Obstr. r"), &mut surf.rayon_obstruction, 0.1, tr!("Rayon de l'obstruction centrale (mm)", "Central obstruction radius (mm)", "Radius der zentralen Obstruktion (mm)"));
+                    champ(ui, tr!("Réseau tr/mm", "Grating l/mm", "Gitter L/mm"), &mut surf.reseau_traits_mm, 1.0, tr!("Traits par mm (0 = pas de réseau), traits parallèles à X local", "Lines per mm (0 = no grating), lines parallel to local X", "Linien pro mm (0 = kein Gitter), Linien parallel zu lokalem X"));
+                    ui.label(RichText::new(tr!("ordre", "order", "Ordnung")).monospace().color(COL_DOS_CYAN));
+                    if ui.add(egui::DragValue::new(&mut surf.reseau_ordre).range(-10..=10)).changed() {
+                        modifie = true;
+                    }
+                    surf.rayon_obstruction = surf.rayon_obstruction.max(0.0);
                 });
                 ui.add_space(4.0);
             }
@@ -1739,7 +1769,8 @@ impl FreeOpticalGuiApp {
             for k in 0..=nb_pts_courbe {
                 let y = -sd + 2.0 * sd * (k as f64) / (nb_pts_courbe as f64);
                 if let Some(f_z) = surf.fleche(y.abs()) {
-                    pts_surf.push(vers_ecran(z_sommet + f_z, y));
+                    let g = surf.vers_global(z_sommet, 0.0, y, f_z);
+                    pts_surf.push(vers_ecran(g.z, g.y));
                 }
             }
 
@@ -1753,7 +1784,8 @@ impl FreeOpticalGuiApp {
                 for k in (0..=nb_pts_courbe).rev() {
                     let y = -sd_suiv + 2.0 * sd_suiv * (k as f64) / (nb_pts_courbe as f64);
                     if let Some(f_z) = surf_suiv.fleche(y.abs()) {
-                        pts_suiv.push(vers_ecran(z_suiv + f_z, y));
+                        let g = surf_suiv.vers_global(z_suiv, 0.0, y, f_z);
+                        pts_suiv.push(vers_ecran(g.z, g.y));
                     }
                 }
 
@@ -1771,7 +1803,12 @@ impl FreeOpticalGuiApp {
                 };
                 let sd_bande = sd.min(sd_suiv);
                 let nb_bandes = 48;
-                let bord = |s: &Surface, z: f64, y: f64| s.fleche(y.abs()).map(|f| vers_ecran(z + f, y));
+                let bord = |s: &Surface, z: f64, y: f64| {
+                    s.fleche(y.abs()).map(|f| {
+                        let g = s.vers_global(z, 0.0, y, f);
+                        vers_ecran(g.z, g.y)
+                    })
+                };
                 let mut maillage = egui::Mesh::default();
                 for k in 0..nb_bandes {
                     let ya = -sd_bande + 2.0 * sd_bande * (k as f64) / (nb_bandes as f64);
@@ -2249,6 +2286,7 @@ impl FreeOpticalGuiApp {
                         tr!("Nombre d'Abbe Vd", "Abbe number Vd", "Abbe-Zahl Vd"),
                         tr!("Indice nF (486.1 nm)", "Index nF (486.1 nm)", "Index nF (486.1 nm)"),
                         tr!("Indice nC (656.3 nm)", "Index nC (656.3 nm)", "Index nC (656.3 nm)"),
+                        tr!("Dispersion", "Dispersion", "Dispersion"),
                     ] {
                         ui.label(
                             RichText::new(h)
@@ -2283,6 +2321,16 @@ impl FreeOpticalGuiApp {
                             RichText::new(format!("{:.5}", mat.indice_refraction(656.2725)))
                                 .monospace(),
                         );
+                        let origine = match &mat.kind {
+                            crate::core::glass::MediumKind::Verre { formule: Some(_), .. } => {
+                                format!("{} (Sellmeier / .agf)", mat.catalogue)
+                            }
+                            crate::core::glass::MediumKind::Verre { .. } => {
+                                tr!("modèle nd/Vd (Cauchy)", "nd/Vd model (Cauchy)", "nd/Vd-Modell (Cauchy)").to_string()
+                            }
+                            _ => String::new(),
+                        };
+                        ui.label(RichText::new(origine).monospace().color(COL_DOS_GRAY));
                         ui.end_row();
                     }
                 });

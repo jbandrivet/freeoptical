@@ -258,3 +258,138 @@ pub fn dessiner_ftm(f: &mut Frame, zone: Rect, app: &AppState) {
         );
     f.render_widget(graphe, zone);
 }
+
+fn couleur_lambda(l: f64) -> Color {
+    if l < 520.0 {
+        DOS_CYAN
+    } else if l <= 610.0 {
+        DOS_GREEN
+    } else {
+        DOS_RED
+    }
+}
+
+fn echelle(valeurs: impl Iterator<Item = f64>, minimum: f64) -> f64 {
+    valeurs.fold(0.0_f64, |a, v| a.max(v.abs())).max(minimum) * 1.1
+}
+
+/// Graphe terminal d'une famille de courbes
+fn graphe<'a>(titre: &'a str, axe_x: &'a str, bx: [f64; 2], by: [f64; 2], series: &'a [(Vec<(f64, f64)>, Color)]) -> Chart<'a> {
+    let jeux = series
+        .iter()
+        .map(|(pts, c)| {
+            Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(Style::default().fg(*c))
+                .data(pts)
+        })
+        .collect();
+    let etiquette = |v: f64| Span::raw(format!("{v:.3}"));
+    Chart::new(jeux)
+        .block(bloc_dos(titre, false))
+        .x_axis(
+            Axis::default()
+                .title(axe_x)
+                .style(Style::default().fg(DOS_TEXT))
+                .bounds(bx)
+                .labels(vec![etiquette(bx[0]), etiquette(0.5 * (bx[0] + bx[1])), etiquette(bx[1])]),
+        )
+        .y_axis(
+            Axis::default()
+                .style(Style::default().fg(DOS_TEXT))
+                .bounds(by)
+                .labels(vec![etiquette(by[0]), etiquette(0.5 * (by[0] + by[1])), etiquette(by[1])]),
+        )
+}
+
+/// Courbes de rayons tangentielle et sagittale (aberrations transverses)
+pub fn dessiner_courbes_rayons(f: &mut Frame, zone: Rect, app: &AppState) {
+    let Some(resultat) = app.ondes.courbes_calculees() else { return };
+    let c = match resultat {
+        Ok(c) => c,
+        Err(e) => return erreur(f, zone, e),
+    };
+    let decoupe = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(zone);
+    let serie = |v: &Vec<Vec<Option<f64>>>| -> Vec<(Vec<(f64, f64)>, Color)> {
+        v.iter()
+            .zip(&c.longueurs_onde_nm)
+            .map(|(v, &l)| (c.pupille.iter().zip(v).filter_map(|(&p, y)| y.map(|y| (p, y))).collect(), couleur_lambda(l)))
+            .collect()
+    };
+    let e = echelle(c.transverse_t_um.iter().chain(&c.transverse_s_um).flatten().flatten().copied(), 1.0);
+    let (t, s) = (serie(&c.transverse_t_um), serie(&c.transverse_s_um));
+    let titre_t = trf!("ΔY (µm) tangentielle — champ {} [C]", "ΔY (µm) tangential — field {} [C]", "ΔY (µm) tangential — Feld {} [C]", libelle_champ(c.champ_deg));
+    let titre_s = tr!("ΔX (µm) sagittale", "ΔX (µm) sagittal", "ΔX (µm) sagittal");
+    f.render_widget(graphe(&titre_t, "py", [-1.0, 1.0], [-e, e], &t), decoupe[0]);
+    f.render_widget(graphe(titre_s, "px", [-1.0, 1.0], [-e, e], &s), decoupe[1]);
+}
+
+/// Courbure de champ (T et S) et distorsion
+pub fn dessiner_courbure_champ(f: &mut Frame, zone: Rect, app: &AppState) {
+    let Some(resultat) = app.ondes.courbure_calculee() else { return };
+    let c = match resultat {
+        Ok(c) => c,
+        Err(e) => return erreur(f, zone, e),
+    };
+    let decoupe = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(zone);
+    let points = |v: &Vec<Option<f64>>| -> Vec<(f64, f64)> {
+        v.iter().zip(&c.angles_deg).filter_map(|(x, &a)| x.map(|x| (x, a))).collect()
+    };
+    let theta = c.angles_deg.last().copied().unwrap_or(1.0).max(1e-6);
+    let ef = echelle(c.foyer_t_mm.iter().chain(&c.foyer_s_mm).flatten().copied(), 0.01);
+    let ed = echelle(c.distorsion_pct.iter().flatten().copied(), 0.01);
+    let courbure = [(points(&c.foyer_t_mm), DOS_CYAN), (points(&c.foyer_s_mm), DOS_YELLOW)];
+    let distorsion = [(points(&c.distorsion_pct), DOS_GREEN)];
+    f.render_widget(
+        graphe(tr!("Courbure de champ (mm) — T cyan, S jaune", "Field curvature (mm) — T cyan, S yellow", "Bildfeldwölbung (mm) — T cyan, S gelb"), "Δz", [-ef, ef], [0.0, theta], &courbure),
+        decoupe[0],
+    );
+    f.render_widget(graphe(tr!("Distorsion (%)", "Distortion (%)", "Verzeichnung (%)"), "%", [-ed, ed], [0.0, theta], &distorsion), decoupe[1]);
+}
+
+/// Tableau des coefficients de Seidel
+pub fn dessiner_seidel(f: &mut Frame, zone: Rect, app: &AppState) {
+    let Some(resultat) = app.ondes.seidel_calcule() else { return };
+    let s = match resultat {
+        Ok(s) => s,
+        Err(e) => return erreur(f, zone, e),
+    };
+    let mut lignes = vec![Line::from(Span::styled(
+        tr!(
+            "Surf      S I sphér.   S II coma  S III astig. S IV Petzval  S V distor.   CL chr.ax.   CT chr.lat.",
+            "Surf      S I spher.   S II coma  S III astig. S IV Petzval  S V distort.  CL ax.col.   CT lat.col.",
+            "Fläche    S I sphär.   S II Koma  S III Astig. S IV Petzval  S V Verz.     CL Farbl.    CT Farbq."
+        ),
+        Style::default().fg(DOS_YELLOW).add_modifier(Modifier::BOLD),
+    ))];
+    let mut ligne = |nom: String, l: &crate::core::aberrations::LigneSeidel, c: Color| {
+        let mut txt = format!("{nom:<6}");
+        for v in [l.s1, l.s2, l.s3, l.s4, l.s5, l.cl, l.ct] {
+            txt.push_str(&format!(" {v:>+12.6}"));
+        }
+        lignes.push(Line::from(Span::styled(txt, Style::default().fg(c))));
+    };
+    for l in &s.lignes {
+        ligne(format!("#{:02}", l.surface), l, DOS_WHITE);
+    }
+    ligne(tr!("TOTAL", "TOTAL", "SUMME").to_string(), &s.total, DOS_GREEN);
+    lignes.push(Line::from(""));
+    lignes.push(Line::from(Span::styled(
+        format!(
+            "W040 {:+.4}  W131 {:+.4}  W222 {:+.4}  W220 {:+.4}  W311 {:+.4} λ  ({:.2}°)",
+            s.w040, s.w131, s.w222, s.w220, s.w311, s.champ_max_deg
+        ),
+        Style::default().fg(DOS_CYAN),
+    )));
+    f.render_widget(
+        Paragraph::new(lignes).block(bloc_dos(tr!("SEIDEL (mm)", "SEIDEL (mm)", "SEIDEL (mm)"), false)),
+        zone,
+    );
+}

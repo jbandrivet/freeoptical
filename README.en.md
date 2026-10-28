@@ -9,7 +9,7 @@
 **Free sequential optical design and simulation software for Linux: graphical interface, terminal interface and MCP server.**
 
 FreeOptical lets you design any optical system (objective, refractor, mirror telescope, test setup…) surface by surface, then analyse and optimize it. It is written in **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) and combines:
-1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, $n_d / V_d$ chromatic dispersion, polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, and Damped Least Squares optimization.
+1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces (folded systems), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, and Damped Least Squares optimization over all fields and colours.
 2. **A graphical interface and a terminal interface (`--tui`) in English, French or German**: Lens Data Editor (LDE), 2D cross section with ray trace, rotatable 3D view, spot diagram, LSA, glass catalogue, wavefront, PSF and MTF. Start from an empty system (`File` → `New empty system`) or from one of the bundled examples.
 3. **A built-in Model Context Protocol (MCP) server** letting an AI agent design, simulate and optimize optical systems.
 
@@ -52,7 +52,8 @@ freeoptical --langue en
 - **`F6` / `6`**: view 6 — wavefront (OPD), Zernike coefficients and Strehl
 - **`F7` / `7`**: view 7 — diffraction point spread function (PSF)
 - **`F8` / `8`**: view 8 — tangential and sagittal MTF of all fields
-- **`C`** / **`W`**: next field / next wavelength for views 6 to 8
+- **`9`**: ray fans (transverse aberrations); **`0`**: field curvature and distortion; Seidel coefficients from the `Analysis` menu
+- **`C`** / **`W`**: next field / next wavelength for the analysis views
 - **`I` / `Ins`**: insert a surface before the selected row
 - **`A`**: add a surface before the image plane
 - **`Del` / `X`**: delete the selected surface
@@ -70,6 +71,19 @@ In the graphical window, the `File` menu saves and reloads `systeme_optique.json
 The **`Update`** button (bottom right, or `Tools` menu) looks for the latest version published on GitHub; if it is newer, it downloads the `.deb` package, checks its SHA-256 digest and installs it with `apt-get` (the administrator password is asked by `pkexec`), then offers to restart FreeOptical.
 The A4, A6, A8, A10 aspheric coefficients of the selected surface are edited on the line above the LDE table (drag: 0.1 µm of edge sag per pixel; click: type a value, e.g. `2.1e-7`); changing a coefficient switches the surface to the `ASPHERIC` type.
 
+#### Graphical window: views and settings
+- Tabs **F1** to **F11** below the editor: 2D section, 3D view, spot, LSA, glasses, wavefront, PSF, MTF, **ray fans** (transverse aberrations and optical path difference along the tangential and sagittal sections), **field curvature and distortion**, **Seidel coefficients** per surface.
+- Below the aspheric coefficients, the line of the selected surface sets its **decenter** (X, Y), its **tilt** (about X then Y, in degrees, about the vertex), its **central obstruction** radius and a **diffraction grating** (lines per mm, order).
+- The **Optimize DLS** button opens the merit function: variables (radii, lens thicknesses, air spaces, back focus, conics, aspherics A4/A6), criterion (RMS spot or RMS wavefront over all fields and wavelengths), target focal length and constraints (edge and centre thicknesses, total length, distortion).
+
+#### Glasses
+The built-in glasses (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, fused silica, CaF2 fluorite) follow their Sellmeier formulas; their old names (BK7, SF11…) are still accepted. Zemax **`.agf`** catalogues (Schott, Ohara, CDGM, Sumita…, ANSI or UTF-16) are imported from the `File` menu, by drag and drop, with `--catalogue file.agf` or with the `importer_catalogue_agf` MCP tool; they are kept in `~/.config/freeoptical/verres` and reloaded at every start. The `nd:Vd` syntax is still available for a model glass.
+
+#### Tilted surfaces, obstructions and gratings
+- Each surface is placed at the axial position given by the thicknesses, then decentered and tilted about its vertex; the ray trace is exact in 3D (Newtonian folded by a 45° flat, Schiefspiegler, spectrograph…). Paraxial calculations (focal length, pupils, Seidel) ignore tilts and gratings.
+- A central obstruction stops the rays passing closer than its radius to the surface axis; spot, wavefront, PSF and MTF take it into account (the reference chief ray is traced without obstruction).
+- Diffraction grating: vector grating equation, lines parallel to the local X axis of the surface, a positive order deviates light towards local +Y; in reflection on a mirror, in transmission otherwise.
+
 #### Wave analyses: wavefront, PSF and MTF
 Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field and wavelength (or to all weighted wavelengths).
 - **Wavefront**: optical path difference referred to the reference sphere centred on the chief-ray image and passing through the paraxial exit pupil (Zemax convention), positive when the ray's optical path is longer; peak-to-valley, RMS, Maréchal Strehl and 37 Zernike coefficients (Noll normalization and ordering).
@@ -81,7 +95,7 @@ Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field a
 FreeOptical reads the design files of the programs from the book *Telescope Optics: Evaluation and Design* (H. G. J. Rutten and M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, mirror and catadioptric telescopes), `.RLD` (LENSDES, refractor objectives) and `.DES` (RAYTRACE). `File` menu → `Import TDESIGN / LENSDES / RAYTRACE`, `--fichier` option, or `importer_teloptik` MCP tool.
 - Imported: spheres, conics, aspheres (r² to r¹⁰ coefficients), Schmidt plates defined by their relative power and neutral zone (third-order profile), mirrors (sign change of the index, including inside the glass of a Mangin), axial shifts, N1/N2/N3 indices converted to `nd:Vd` glasses, limiting diameters when vignetting was enabled in RAYTRACE.
 - The image plane is placed at the paraxial focus and the semi-diameters are computed to pass the beam on axis and at 0.5° field.
-- Central obstructions are ignored (and reported); tilted or decentered systems are refused, as FreeOptical does not handle non-centered surfaces yet.
+- Central obstructions are imported when vignetting was enabled in RAYTRACE; tilted or decentered files are refused, as RAYTRACE's placement convention is not known for certain.
 - The focal length in the header is compared with the recomputed one: they match for files saved by RAYTRACE; TDESIGN pre-designs keep the target focal length, without the corrector power.
 
 #### Optical conventions
@@ -108,6 +122,9 @@ freeoptical --mcp
 - `importer_teloptik(chemin)`: imports a `.TDS`, `.RLD` or `.DES` file (TDESIGN, LENSDES, RAYTRACE) as the current system.
 - `analyser_front_onde(champ_index, longueur_onde_nm)`: wavefront of a field: peak-to-valley, RMS, Strehl (Maréchal and PSF), 37 Zernike coefficients.
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangential and sagittal MTF, diffraction limit and PSF Strehl.
+- `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel coefficients per surface, field curvature and distortion, ray fans.
+- `importer_catalogue_agf(chemin)`: imports a Zemax `.agf` glass catalogue.
+- `modifier_surface` also accepts `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` and `reseau_ordre`; `optimiser_systeme` accepts the variables `a4` to `a10` and the targets `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---
 

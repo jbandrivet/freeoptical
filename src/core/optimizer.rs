@@ -1,6 +1,9 @@
 use crate::core::analysis::{calculer_aberration_spherique_longitudinale, calculer_spot_diagram};
 use crate::core::paraxial::calculer_paraxial;
 use crate::core::glass::MediumKind;
+use crate::core::aberrations::calculer_courbure_distorsion;
+use crate::core::onde::opd_pupille;
+use crate::core::raytracer::{VisePupille, tracer_rayon_unique};
 use crate::core::types::{OpticalSystem, SurfaceType};
 use nalgebra::{DMatrix, DVector};
 use schemars::JsonSchema;
@@ -11,15 +14,20 @@ use serde::{Deserialize, Serialize};
 pub struct OptimizationVariable {
     /// Index de la surface dans le système optique (0..N-1)
     pub index_surface: usize,
-    /// Nom du paramètre à faire varier : `"rayon"`, `"epaisseur"`, ou `"conique"`
+    /// Nom du paramètre à faire varier : `"rayon"`, `"epaisseur"`, `"conique"`, ou un coefficient
+    /// asphérique `"a4"`, `"a6"`, `"a8"`, `"a10"`
     pub parametre: String,
 }
 
 /// Cible (opérande de la fonction de mérite) pour l'optimiseur Damped Least Squares
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct OptimizationTarget {
-    /// Type de cible : `"focale"` (EFFL en mm), `"spot_rms"` (minimiser le rayon RMS),
-    /// `"aberration_spherique"` (minimiser la LSA), ou `"tirage_bfl"` (focaliser au plan image)
+    /// Type de cible : `"focale"` (EFFL en mm), `"spot_rms"` (rayon RMS sur l'axe),
+    /// `"spot_rms_champs"` (écarts au centroïde, tous champs et toutes couleurs),
+    /// `"opd_rms_champs"` (front d'onde RMS, tous champs et toutes couleurs),
+    /// `"aberration_spherique"` (LSA), `"tirage_bfl"` (mise au point), contraintes
+    /// `"longueur_totale_max"` (mm), `"distorsion_max"` (%), `"epaisseur_centre_min"` et
+    /// `"epaisseur_bord_min"` (mm, 1,8 par défaut)
     pub type_cible: String,
     /// Valeur cible souhaitée (ex: 100.0 pour une focale de 100 mm, 0.0 pour minimiser une aberration)
     pub valeur_cible: f64,
@@ -54,7 +62,10 @@ fn extraire_vecteur_variables(systeme: &OpticalSystem, variables: &[Optimization
                 "rayon" | "r" | "courbure" => vals.push(s.courbure()),
                 "epaisseur" | "t" | "thickness" => vals.push(s.epaisseur),
                 "conique" | "k" | "conic" => vals.push(s.conique),
-                _ => vals.push(0.0),
+                p => match indice_asphere(p) {
+                    Some(k) => vals.push(s.aspheriques[k] * echelle_asphere(s.semi_diametre, k)),
+                    None => vals.push(0.0),
+                },
             }
         } else {
             vals.push(0.0);
@@ -92,10 +103,116 @@ fn appliquer_vecteur_variables(
                 "conique" | "k" | "conic" => {
                     s.conique = val.clamp(-10.0, 10.0);
                 }
-                _ => {}
+                p => {
+                    if let Some(k) = indice_asphere(p) {
+                        s.aspheriques[k] = val / echelle_asphere(s.semi_diametre, k);
+                        if s.type_surface != SurfaceType::Aspherique {
+                            s.type_surface = SurfaceType::Aspherique;
+                        }
+                    }
+                }
             }
         }
     }
+}
+
+/// Index du coefficient asphérique ("a4" → 0, "a6" → 1, "a8" → 2, "a10" → 3)
+fn indice_asphere(p: &str) -> Option<usize> {
+    match p {
+        "a4" => Some(0),
+        "a6" => Some(1),
+        "a8" => Some(2),
+        "a10" => Some(3),
+        _ => None,
+    }
+}
+
+/// Les coefficients asphériques sont optimisés sous forme de flèche ajoutée au bord (mm),
+/// grandeur de l'ordre de celles des autres variables
+fn echelle_asphere(semi_diametre: f64, k: usize) -> f64 {
+    semi_diametre.max(1.0).powi(4 + 2 * k as i32)
+}
+
+/// Écarts au centroïde (mm) des rayons d'une grille hexapolaire de 3 anneaux, pour tous les
+/// champs et toutes les longueurs d'onde (pondérées) : critère « spot RMS » du système entier
+fn residus_spot_champs(systeme: &OpticalSystem, poids: f64, residus: &mut Vec<f64>) {
+    let vise = VisePupille::calculer(systeme);
+    let champs = if systeme.champs_deg.is_empty() { vec![(0.0, 0.0)] } else { systeme.champs_deg.clone() };
+    let lambdas: Vec<(f64, f64)> = if systeme.longueurs_onde.is_empty() {
+        vec![(systeme.longueur_onde_ref_nm, 1.0)]
+    } else {
+        systeme.longueurs_onde.iter().map(|w| (w.valeur_nm, w.poids.max(0.0))).collect()
+    };
+    let total_l: f64 = lambdas.iter().map(|l| l.1).sum::<f64>().max(1e-12);
+    let points = grille_hexapolaire(3);
+    for &champ in &champs {
+        let mut impacts = Vec::new();
+        for &(lambda, wl) in &lambdas {
+            for &(px, py) in &points {
+                let tr = tracer_rayon_unique(systeme, vise.rayon(px, py, champ.0, champ.1, lambda), champ, (px, py));
+                impacts.push((tr.impact_plan_image().map(|h| (h.point_local.x, h.point_local.y)), (wl / total_l).sqrt()));
+            }
+        }
+        let valides: Vec<(f64, f64)> = impacts.iter().filter_map(|i| i.0).collect();
+        let n = valides.len().max(1) as f64;
+        let cx = valides.iter().map(|v| v.0).sum::<f64>() / n;
+        let cy = valides.iter().map(|v| v.1).sum::<f64>() / n;
+        let norme = poids * 50.0 / (points.len() as f64).sqrt();
+        for (impact, w) in impacts {
+            match impact {
+                Some((x, y)) => {
+                    residus.push(norme * w * (x - cx));
+                    residus.push(norme * w * (y - cy));
+                }
+                None => {
+                    residus.push(norme * w);
+                    residus.push(norme * w);
+                }
+            }
+        }
+    }
+}
+
+/// Différence de marche (ondes, piston retiré) sur une grille hexapolaire de 3 anneaux, pour
+/// tous les champs et toutes les longueurs d'onde : critère « front d'onde RMS »
+fn residus_opd_champs(systeme: &OpticalSystem, poids: f64, residus: &mut Vec<f64>) {
+    let champs = if systeme.champs_deg.is_empty() { vec![(0.0, 0.0)] } else { systeme.champs_deg.clone() };
+    let lambdas: Vec<(f64, f64)> = if systeme.longueurs_onde.is_empty() {
+        vec![(systeme.longueur_onde_ref_nm, 1.0)]
+    } else {
+        systeme.longueurs_onde.iter().map(|w| (w.valeur_nm, w.poids.max(0.0))).collect()
+    };
+    let total_l: f64 = lambdas.iter().map(|l| l.1).sum::<f64>().max(1e-12);
+    let points = grille_hexapolaire(3);
+    let norme = poids * 0.5 / (points.len() as f64).sqrt();
+    for &champ in &champs {
+        for &(lambda, wl) in &lambdas {
+            let w = norme * (wl / total_l).sqrt();
+            match opd_pupille(systeme, champ, lambda, &points) {
+                Ok(opd) => {
+                    let valides: Vec<f64> = opd.iter().flatten().copied().collect();
+                    let moyenne = valides.iter().sum::<f64>() / valides.len().max(1) as f64;
+                    for v in opd {
+                        residus.push(w * v.map(|v| v - moyenne).unwrap_or(1.0));
+                    }
+                }
+                Err(_) => residus.extend(std::iter::repeat_n(w * 10.0, points.len())),
+            }
+        }
+    }
+}
+
+/// Points (px, py) d'une grille hexapolaire : centre puis anneaux de 6, 12, 18… points
+fn grille_hexapolaire(anneaux: usize) -> Vec<(f64, f64)> {
+    let mut pts = vec![(0.0, 0.0)];
+    for k in 1..=anneaux {
+        let rho = k as f64 / anneaux as f64;
+        for j in 0..6 * k {
+            let t = std::f64::consts::TAU * j as f64 / (6 * k) as f64;
+            pts.push((rho * t.cos(), rho * t.sin()));
+        }
+    }
+    pts
 }
 
 /// Nombre de hauteurs pupillaires échantillonnées pour l'opérande d'aberration sphérique
@@ -153,6 +270,29 @@ fn evaluer_residus(systeme: &OpticalSystem, cibles: &[OptimizationTarget]) -> DV
                     residus.push(w * val);
                 }
             }
+            "spot_rms_champs" | "spot_champs" => residus_spot_champs(systeme, w, &mut residus),
+            "opd_rms_champs" | "front_onde_rms" | "opd" => residus_opd_champs(systeme, w, &mut residus),
+            "longueur_totale_max" | "longueur_totale" => {
+                let l = paraxial.longueur_totale_mm.abs();
+                residus.push(w * 10.0 * (l - c.valeur_cible).max(0.0));
+            }
+            "distorsion_max" => {
+                let d = calculer_courbure_distorsion(systeme, systeme.longueur_onde_ref_nm, 2)
+                    .ok()
+                    .and_then(|r| r.distorsion_pct.last().copied().flatten())
+                    .unwrap_or(0.0);
+                residus.push(w * (d.abs() - c.valeur_cible.abs()).max(0.0));
+            }
+            "epaisseur_centre_min" => {
+                for (i, s1) in systeme.surfaces.iter().enumerate().take(systeme.surfaces.len().saturating_sub(1)) {
+                    let _ = i;
+                    if matches!(systeme.catalogue.resoudre(&s1.verre).kind, MediumKind::Verre { .. }) {
+                        residus.push(w * 500.0 * (c.valeur_cible - s1.epaisseur.abs()).max(0.0));
+                    }
+                }
+            }
+            // Réglage de la contrainte d'épaisseur au bord (appliquée plus bas)
+            "epaisseur_bord_min" => {}
             // Par défaut : "spot_rms" / minimisation du rayon RMS et GEO du Spot Diagram
             _ => {
                 if spot.nb_rayons_valides == 0 {
@@ -179,7 +319,11 @@ fn evaluer_residus(systeme: &OpticalSystem, cibles: &[OptimizationTarget]) -> DV
             let f1 = s1.fleche(sd).unwrap_or(100.0);
             let f2 = s2.fleche(sd).unwrap_or(-100.0);
             let ep_bord = s1.epaisseur + f2 - f1;
-            let min_bord = 1.8;
+            let min_bord = cibles
+                .iter()
+                .find(|c| c.type_cible.eq_ignore_ascii_case("epaisseur_bord_min"))
+                .map(|c| c.valeur_cible)
+                .unwrap_or(1.8);
             if ep_bord < min_bord {
                 residus.push((min_bord - ep_bord) * 500.0);
             } else {
@@ -320,5 +464,70 @@ pub fn optimiser_systeme_dls(
             paraxial_final.focale_effl_mm,
             spot_final.rayon_rms_um
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests_merite {
+    use super::*;
+    use crate::core::onde::calculer_front_onde;
+    use crate::core::types::{ApertureSpec, Surface, Wavelength};
+
+    fn cible(t: &str, v: f64) -> OptimizationTarget {
+        OptimizationTarget { type_cible: t.into(), valeur_cible: v, poids: 1.0 }
+    }
+
+    #[test]
+    fn front_onde_rms_rend_parabolique_un_miroir_spherique() {
+        let mut m = Surface::nouvelle(SurfaceType::Conique, -1000.0, -500.0, "MIROIR", 50.0);
+        m.est_diaphragme = true;
+        let mut sys = OpticalSystem {
+            nom: "miroir".into(),
+            longueur_onde_ref_nm: 587.5618,
+            longueurs_onde: vec![Wavelength::new(587.5618, 1.0, "d")],
+            ouverture: ApertureSpec::PupilleEntreeMm(100.0),
+            champs_deg: vec![(0.0, 0.0)],
+            surfaces: vec![m, Surface::plan_image(10.0)],
+            catalogue: Default::default(),
+        };
+        let vars = vec![OptimizationVariable { index_surface: 0, parametre: "conique".into() }];
+        optimiser_systeme_dls(&mut sys, &vars, &[cible("opd_rms_champs", 0.0)], 30);
+        assert!((sys.surfaces[0].conique + 1.0).abs() < 0.01, "k = {}", sys.surfaces[0].conique);
+        let carte = calculer_front_onde(&sys, (0.0, 0.0), 587.5618, 32).unwrap();
+        assert!(carte.rms_ondes < 0.01, "RMS {}", carte.rms_ondes);
+    }
+
+    #[test]
+    fn asphere_et_spot_tous_champs() {
+        // Miroir sphérique : un terme A4 corrige aussi l'aberration sphérique
+        let mut m = Surface::nouvelle(SurfaceType::Aspherique, -1000.0, -500.0, "MIROIR", 50.0);
+        m.est_diaphragme = true;
+        let mut sys = OpticalSystem {
+            nom: "miroir".into(),
+            longueur_onde_ref_nm: 587.5618,
+            longueurs_onde: vec![Wavelength::new(587.5618, 1.0, "d")],
+            ouverture: ApertureSpec::PupilleEntreeMm(100.0),
+            champs_deg: vec![(0.0, 0.0)],
+            surfaces: vec![m, Surface::plan_image(10.0)],
+            catalogue: Default::default(),
+        };
+        let avant = calculer_spot_diagram(&sys, (0.0, 0.0), 6).rayon_rms_um;
+        let vars = vec![OptimizationVariable { index_surface: 0, parametre: "a4".into() }];
+        optimiser_systeme_dls(&mut sys, &vars, &[cible("spot_rms_champs", 0.0)], 30);
+        let apres = calculer_spot_diagram(&sys, (0.0, 0.0), 6).rayon_rms_um;
+        assert!(apres < 0.05 * avant, "spot {avant} → {apres} µm");
+        // Flèche sphère - parabole = c³ r⁴ / 8 + … : le terme A4 trouvé vaut ≈ -c³/8
+        let c: f64 = -1.0 / 1000.0;
+        let attendu = -c.powi(3) / 8.0;
+        let a4 = sys.surfaces[0].aspheriques[0];
+        assert!((a4 - attendu).abs() < 0.05 * attendu.abs(), "A4 = {a4}, attendu {attendu}");
+    }
+
+    #[test]
+    fn contraintes_longueur_et_epaisseur() {
+        let mut d = OpticalSystem::doublet_achromatique_defaut();
+        let vars = vec![OptimizationVariable { index_surface: 2, parametre: "epaisseur".into() }];
+        optimiser_systeme_dls(&mut d, &vars, &[cible("longueur_totale_max", 95.0)], 30);
+        assert!(calculer_paraxial(&d).longueur_totale_mm < 95.5);
     }
 }

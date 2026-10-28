@@ -120,7 +120,22 @@ struct Reference {
     f_travail: f64,
 }
 
+/// Copie du système sans obstruction centrale, pour tracer le rayon principal (qui passe au
+/// centre de la pupille, donc dans l'ombre d'une obstruction)
+fn sans_obstruction(sys: &OpticalSystem) -> std::borrow::Cow<'_, OpticalSystem> {
+    if sys.surfaces.iter().all(|s| s.rayon_obstruction == 0.0) {
+        std::borrow::Cow::Borrowed(sys)
+    } else {
+        let mut libre = sys.clone();
+        for s in &mut libre.surfaces {
+            s.rayon_obstruction = 0.0;
+        }
+        std::borrow::Cow::Owned(libre)
+    }
+}
+
 fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String> {
+    let sys_libre = sans_obstruction(sys);
     let p = calculer_paraxial(sys);
     if !p.focale_effl_mm.is_finite() {
         return Err(tr!(
@@ -132,7 +147,7 @@ fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String
     }
     let lambda = sys.longueur_onde_ref_nm;
     let vise = VisePupille::calculer(sys);
-    let chef = tracer_rayon_unique(sys, vise.rayon(0.0, 0.0, champ.0, champ.1, lambda), champ, (0.0, 0.0));
+    let chef = tracer_rayon_unique(&sys_libre, vise.rayon(0.0, 0.0, champ.0, champ.1, lambda), champ, (0.0, 0.0));
     let impact = chef.impact_plan_image().ok_or_else(|| {
         tr!(
             "le rayon principal n'atteint pas le plan image",
@@ -146,13 +161,26 @@ fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String
 
     let nb = sys.surfaces.len();
     let z = sys.positions_z_sommets();
-    let z_pupille = if nb >= 2 { z[nb - 2] + p.position_pupille_sortie_mm } else { f64::NAN };
     let mut rayon = None;
-    if z_pupille.is_finite() && d.z.abs() > 1e-9 {
-        let s = (z_pupille - centre.z) / d.z;
-        let r = (s * d).norm();
-        if r > 1e-6 && r < 1e7 {
-            rayon = Some(r);
+    if sys.surfaces.iter().any(|s| s.est_hors_axe()) {
+        // Système replié ou décentré : distance de la pupille de sortie à l'image mesurée le long
+        // du rayon principal, depuis son impact sur la dernière surface optique
+        let n_imp = chef.impacts.len();
+        if n_imp >= 2 && p.position_pupille_sortie_mm.is_finite() {
+            let l = (centre - chef.impacts[n_imp - 2].point_global).norm();
+            let r = (l - sys.sens_propagation_image() * p.position_pupille_sortie_mm).abs();
+            if r > 1e-6 && r < 1e7 {
+                rayon = Some(r);
+            }
+        }
+    } else {
+        let z_pupille = if nb >= 2 { z[nb - 2] + p.position_pupille_sortie_mm } else { f64::NAN };
+        if z_pupille.is_finite() && d.z.abs() > 1e-9 {
+            let s = (z_pupille - centre.z) / d.z;
+            let r = (s * d).norm();
+            if r > 1e-6 && r < 1e7 {
+                rayon = Some(r);
+            }
         }
     }
     let f_travail = match rayon {
@@ -217,7 +245,7 @@ fn opd_points(
     refe: &Reference,
 ) -> Result<Vec<Option<f64>>, String> {
     let vise = VisePupille::calculer(sys);
-    let chef = tracer_rayon_unique(sys, vise.rayon(0.0, 0.0, champ.0, champ.1, lambda_nm), champ, (0.0, 0.0));
+    let chef = tracer_rayon_unique(&sans_obstruction(sys), vise.rayon(0.0, 0.0, champ.0, champ.1, lambda_nm), champ, (0.0, 0.0));
     let origine_chef = chef.rayon_initial.origine;
     let s_chef = chemin_jusqu_a_reference(&chef, &origine_chef, refe).ok_or_else(|| {
         trf!(
@@ -235,6 +263,17 @@ fn opd_points(
             chemin_jusqu_a_reference(&tr, &origine_chef, refe).map(|s| (s - s_chef) / lambda_mm)
         })
         .collect())
+}
+
+/// Différence de marche (en ondes) d'une liste de points `(px, py)` de la pupille d'entrée
+pub fn opd_pupille(
+    sys: &OpticalSystem,
+    champ: (f64, f64),
+    lambda_nm: f64,
+    points: &[(f64, f64)],
+) -> Result<Vec<Option<f64>>, String> {
+    let refe = reference(sys, champ)?;
+    opd_points(sys, champ, lambda_nm, points, &refe)
 }
 
 /// Différence de marche d'un seul rayon (en ondes), pour les éventails d'OPD
@@ -569,6 +608,9 @@ pub struct AnalysesOndes {
     front: Option<Result<CarteFrontOnde, String>>,
     psf: Option<Result<(ResultatPsf, ResultatFtm), String>>,
     ftm_champs: Option<Vec<Result<ResultatFtm, String>>>,
+    courbes: Option<Result<crate::core::aberrations::CourbesRayons, String>>,
+    courbure: Option<Result<crate::core::aberrations::CourbureDistorsion, String>>,
+    seidel: Option<Result<crate::core::aberrations::Seidel, String>>,
     /// Incrémenté à chaque nouveau calcul (pour rafraîchir les images affichées)
     pub generation: u64,
 }
@@ -578,6 +620,9 @@ impl AnalysesOndes {
         self.front = None;
         self.psf = None;
         self.ftm_champs = None;
+        self.courbes = None;
+        self.courbure = None;
+        self.seidel = None;
         self.generation += 1;
     }
 
@@ -645,6 +690,36 @@ impl AnalysesOndes {
         })
     }
 
+    /// Courbes de rayons (aberrations transverses et OPD) du champ choisi
+    pub fn courbes(&mut self, sys: &OpticalSystem) -> &Result<crate::core::aberrations::CourbesRayons, String> {
+        self.borner(sys);
+        let champ = self.champ_deg(sys);
+        self.courbes
+            .get_or_insert_with(|| crate::core::aberrations::calculer_courbes_rayons(sys, champ, 21))
+    }
+
+    /// Courbure de champ et distorsion (longueur d'onde choisie, sinon de référence)
+    pub fn courbure(&mut self, sys: &OpticalSystem) -> &Result<crate::core::aberrations::CourbureDistorsion, String> {
+        self.borner(sys);
+        let lambda = self.lambda_front_nm(sys);
+        self.courbure
+            .get_or_insert_with(|| crate::core::aberrations::calculer_courbure_distorsion(sys, lambda, 21))
+    }
+
+    pub fn seidel(&mut self, sys: &OpticalSystem) -> &Result<crate::core::aberrations::Seidel, String> {
+        self.seidel.get_or_insert_with(|| crate::core::aberrations::calculer_seidel(sys))
+    }
+
+    pub fn courbes_calculees(&self) -> Option<&Result<crate::core::aberrations::CourbesRayons, String>> {
+        self.courbes.as_ref()
+    }
+    pub fn courbure_calculee(&self) -> Option<&Result<crate::core::aberrations::CourbureDistorsion, String>> {
+        self.courbure.as_ref()
+    }
+    pub fn seidel_calcule(&self) -> Option<&Result<crate::core::aberrations::Seidel, String>> {
+        self.seidel.as_ref()
+    }
+
     /// Résultats déjà calculés (pour un affichage sans accès mutable)
     pub fn front_calcule(&self) -> Option<&Result<CarteFrontOnde, String>> {
         self.front.as_ref()
@@ -685,6 +760,50 @@ mod tests {
             surfaces: vec![m, Surface::plan_image(20.0)],
             catalogue: Default::default(),
         }
+    }
+
+    #[test]
+    fn newton_replie_par_un_miroir_plan_a_45_degres() {
+        // Parabole f = 1000, F/5 ; miroir plan à 800 mm incliné de 45° : le foyer est renvoyé
+        // à 200 mm sur le côté (-Y), où l'on place un plan image décentré et incliné de 90°
+        let mut sys = miroir(-2000.0, -1.0, 200.0, 0.0);
+        sys.surfaces[0].epaisseur = -800.0;
+        let mut plan = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 0.0, "MIROIR", 40.0);
+        plan.inclinaison_deg = [45.0, 0.0];
+        let mut image = Surface::plan_image(20.0);
+        image.decentrement = [0.0, -200.0];
+        image.inclinaison_deg = [90.0, 0.0];
+        sys.surfaces = vec![sys.surfaces[0].clone(), plan, image];
+        let spot = crate::core::analysis::calculer_spot_diagram(&sys, (0.0, 0.0), 6);
+        assert_eq!(spot.nb_rayons_valides, 127);
+        assert!(spot.rayon_rms_um < 1e-3, "spot {} µm", spot.rayon_rms_um);
+        assert!(spot.centroide_mm.0.hypot(spot.centroide_mm.1) < 1e-6);
+        let carte = calculer_front_onde(&sys, (0.0, 0.0), 587.5618, 32).unwrap();
+        assert!(carte.rms_ondes < 1e-3, "RMS {}", carte.rms_ondes);
+        let (psf, ftm) = calculer_psf_ftm(&sys, (0.0, 0.0), None).unwrap();
+        assert!((psf.f_travail - 5.0).abs() < 0.01, "F/# {}", psf.f_travail);
+        assert!(psf.strehl > 0.999);
+        assert!((ftm.frequence_coupure_cyc_mm - 340.4).abs() < 1.0);
+    }
+
+    #[test]
+    fn obstruction_centrale() {
+        // Obstruction de 30 % du diamètre : 9 % de la surface en moins, FTM abaissée aux
+        // fréquences moyennes par rapport à la pupille pleine
+        let mut sys = miroir(-2000.0, -1.0, 200.0, 0.0);
+        let pleine = calculer_psf_ftm(&sys, (0.0, 0.0), None).unwrap().1;
+        sys.surfaces[0].rayon_obstruction = 30.0;
+        let carte = calculer_front_onde(&sys, (0.0, 0.0), 587.5618, 64).unwrap();
+        let surface_pleine = calculer_front_onde(&miroir(-2000.0, -1.0, 200.0, 0.0), (0.0, 0.0), 587.5618, 64)
+            .unwrap()
+            .nb_points as f64;
+        let fraction = carte.nb_points as f64 / surface_pleine;
+        assert!((fraction - 0.91).abs() < 0.01, "fraction transmise {fraction}");
+        let (psf, ftm) = calculer_psf_ftm(&sys, (0.0, 0.0), None).unwrap();
+        assert!(psf.strehl > 0.999);
+        let k = ftm.tangentielle.len() / 2;
+        assert!(ftm.tangentielle[k] < pleine.tangentielle[k] - 0.05);
+        assert!((ftm.tangentielle[k] - ftm.limite_diffraction[k]).abs() < 1e-6);
     }
 
     #[test]

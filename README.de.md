@@ -9,7 +9,7 @@
 **Freie Software für sequentielles Optikdesign und Simulation unter Linux: grafische Oberfläche, Terminal-Oberfläche und MCP-Server.**
 
 Mit FreeOptical lässt sich jedes optische System (Objektiv, Refraktor, Spiegelteleskop, Prüfaufbau…) Fläche für Fläche entwerfen, analysieren und optimieren. Es ist in **Rust** geschrieben (`egui`, `ratatui`, `nalgebra`, `rmcp`) und vereint:
-1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, chromatische Dispersion $n_d / V_d$, polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF sowie Optimierung nach Damped Least Squares.
+1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, gekippte und dezentrierte Flächen (gefaltete Systeme), zentrale Obstruktionen, Beugungsgitter, echte Gläser (Sellmeier-Formeln, Zemax-Kataloge `.agf`: Schott, Ohara, CDGM…), polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF, Strahlfächer, Bildfeldwölbung, Verzeichnung, Seidel-Koeffizienten sowie Optimierung nach Damped Least Squares über alle Felder und Farben.
 2. **Eine grafische Oberfläche und eine Terminal-Oberfläche (`--tui`) auf Deutsch, Englisch oder Französisch**: Linsendaten-Editor (LDE), 2D-Schnitt mit Strahlverfolgung, drehbare 3D-Ansicht, Spotdiagramm, LSA, Glaskatalog, Wellenfront, PSF und MTF. Man beginnt mit einem leeren System (`Datei` → `Neues leeres System`) oder mit einem der mitgelieferten Beispiele.
 3. **Einen eingebauten Model-Context-Protocol-Server (MCP)**, mit dem ein KI-Agent optische Systeme entwerfen, simulieren und optimieren kann.
 
@@ -52,7 +52,8 @@ freeoptical --langue de
 - **`F6` / `6`**: Ansicht 6 — Wellenfront (OPD), Zernike-Koeffizienten und Strehl
 - **`F7` / `7`**: Ansicht 7 — Beugungs-Punktbildfunktion (PSF)
 - **`F8` / `8`**: Ansicht 8 — tangentiale und sagittale MTF aller Felder
-- **`C`** / **`W`**: nächstes Feld / nächste Wellenlänge für die Ansichten 6 bis 8
+- **`9`**: Strahlfächer (Queraberrationen); **`0`**: Bildfeldwölbung und Verzeichnung; Seidel-Koeffizienten über das Menü `Analyse`
+- **`C`** / **`W`**: nächstes Feld / nächste Wellenlänge für die Analyseansichten
 - **`I` / `Einfg`**: Fläche vor der ausgewählten Zeile einfügen
 - **`A`**: Fläche vor der Bildebene hinzufügen
 - **`Entf` / `X`**: ausgewählte Fläche löschen
@@ -70,6 +71,19 @@ Im grafischen Fenster speichert und lädt das Menü `Datei` die Datei `systeme_o
 Die Schaltfläche **`Update`** (unten rechts oder Menü `Werkzeuge`) sucht die neueste auf GitHub veröffentlichte Version; ist sie neuer, lädt sie das `.deb`-Paket herunter, prüft dessen SHA-256-Prüfsumme, installiert es mit `apt-get` (das Administratorpasswort wird von `pkexec` abgefragt) und bietet einen Neustart von FreeOptical an.
 Die Asphärenkoeffizienten A4, A6, A8, A10 der ausgewählten Fläche werden in der Zeile über der LDE-Tabelle bearbeitet (Ziehen: 0,1 µm Pfeilhöhe am Rand pro Pixel; Klicken: direkte Eingabe, z. B. `2.1e-7`); das Ändern eines Koeffizienten schaltet die Fläche auf den Typ `ASPHÄRISCH`.
 
+#### Grafisches Fenster: Ansichten und Einstellungen
+- Reiter **F1** bis **F11** unter dem Editor: 2D-Schnitt, 3D-Ansicht, Spot, LSA, Gläser, Wellenfront, PSF, MTF, **Strahlfächer** (Queraberrationen und optische Wegdifferenz im tangentialen und sagittalen Schnitt), **Bildfeldwölbung und Verzeichnung**, **Seidel-Koeffizienten** je Fläche.
+- Unter den Asphärenkoeffizienten stellt die Zeile der ausgewählten Fläche ihre **Dezentrierung** (X, Y), ihre **Kippung** (um X, dann um Y, in Grad, um den Scheitel), den Radius ihrer **zentralen Obstruktion** und ein **Beugungsgitter** (Linien pro mm, Ordnung) ein.
+- Die Schaltfläche **DLS optimieren** öffnet die Gütefunktion: Variablen (Radien, Linsendicken, Luftabstände, Schnittweite, Kegelschnitte, Asphären A4/A6), Kriterium (RMS-Spot oder RMS-Wellenfront über alle Felder und Wellenlängen), Zielbrennweite und Nebenbedingungen (Rand- und Mittendicken, Baulänge, Verzeichnung).
+
+#### Gläser
+Die eingebauten Gläser (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, Quarzglas, Flussspat CaF2) folgen ihren Sellmeier-Formeln; die alten Namen (BK7, SF11…) bleiben gültig. Zemax-Kataloge **`.agf`** (Schott, Ohara, CDGM, Sumita…, ANSI oder UTF-16) werden über das Menü `Datei`, per Drag-and-drop, mit `--catalogue datei.agf` oder mit dem MCP-Werkzeug `importer_catalogue_agf` importiert; sie werden in `~/.config/freeoptical/verres` aufbewahrt und bei jedem Start geladen. Die Syntax `nd:Vd` bleibt für ein Modellglas verfügbar.
+
+#### Gekippte Flächen, Obstruktionen und Gitter
+- Jede Fläche wird an der durch die Dicken gegebenen axialen Position platziert, dann um ihren Scheitel dezentriert und gekippt; die Strahlverfolgung ist in 3D exakt (Newton mit 45°-Fangspiegel, Schiefspiegler, Spektrograph…). Die paraxialen Rechnungen (Brennweite, Pupillen, Seidel) ignorieren Kippungen und Gitter.
+- Eine zentrale Obstruktion hält die Strahlen auf, die näher als ihr Radius an der Flächenachse vorbeigehen; Spot, Wellenfront, PSF und MTF berücksichtigen sie (der Referenz-Hauptstrahl wird ohne Obstruktion verfolgt).
+- Beugungsgitter: vektorielle Gittergleichung, Linien parallel zur lokalen X-Achse der Fläche, eine positive Ordnung lenkt das Licht nach lokal +Y ab; in Reflexion auf einem Spiegel, sonst in Transmission.
+
 #### Wellenoptische Analysen: Wellenfront, PSF und MTF
 Die Ansichten `F6`, `F7` und `F8` (grafisches Fenster und TUI) gelten für das gewählte Feld und die gewählte Wellenlänge (oder alle gewichteten Wellenlängen).
 - **Wellenfront**: optische Wegdifferenz bezogen auf die Referenzkugel um das Bild des Hauptstrahls durch die paraxiale Austrittspupille (Zemax-Konvention), positiv, wenn der optische Weg des Strahls länger ist; Spitze-Tal, RMS, Strehl nach Maréchal und 37 Zernike-Koeffizienten (Normierung und Reihenfolge nach Noll).
@@ -81,7 +95,7 @@ Die Ansichten `F6`, `F7` und `F8` (grafisches Fenster und TUI) gelten für das g
 FreeOptical liest die Designdateien der Programme aus dem Buch *Telescope Optics: Evaluation and Design* (H. G. J. Rutten und M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, Spiegel- und katadioptrische Teleskope), `.RLD` (LENSDES, Refraktorobjektive) und `.DES` (RAYTRACE). Menü `Datei` → `TDESIGN / LENSDES / RAYTRACE importieren`, Option `--fichier` oder MCP-Werkzeug `importer_teloptik`.
 - Übernommen werden: Sphären, Kegelschnitte, Asphären (Koeffizienten r² bis r¹⁰), Schmidtplatten aus relativer Stärke und neutraler Zone (Profil dritter Ordnung), Spiegel (Vorzeichenwechsel des Index, auch im Glas eines Mangin-Spiegels), axiale Verschiebungen, Indizes N1/N2/N3 als Gläser `nd:Vd`, Grenzdurchmesser, wenn in RAYTRACE die Vignettierung aktiv war.
 - Die Bildebene liegt im paraxialen Fokus; die Halbdurchmesser werden so berechnet, dass das Bündel auf der Achse und bei 0,5° Feld durchgeht.
-- Zentrale Obstruktionen werden ignoriert (und gemeldet); gekippte oder dezentrierte Systeme werden abgelehnt, da FreeOptical noch keine nicht zentrierten Flächen unterstützt.
+- Zentrale Obstruktionen werden übernommen, wenn in RAYTRACE die Vignettierung aktiv war; gekippte oder dezentrierte Dateien werden abgelehnt, da die Platzierungskonvention von RAYTRACE nicht sicher bekannt ist.
 - Die Brennweite im Dateikopf wird mit der neu berechneten verglichen: bei von RAYTRACE gespeicherten Dateien stimmen sie überein; TDESIGN-Vorentwürfe enthalten die Zielbrennweite ohne die Stärke des Korrektors.
 
 #### Optische Konventionen
@@ -108,6 +122,9 @@ freeoptical --mcp
 - `importer_teloptik(chemin)`: importiert eine `.TDS`-, `.RLD`- oder `.DES`-Datei (TDESIGN, LENSDES, RAYTRACE) als aktuelles System.
 - `analyser_front_onde(champ_index, longueur_onde_nm)`: Wellenfront eines Feldes: Spitze-Tal, RMS, Strehl (Maréchal und PSF), 37 Zernike-Koeffizienten.
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangentiale und sagittale MTF, Beugungsgrenze und Strehl der PSF.
+- `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel-Koeffizienten je Fläche, Bildfeldwölbung und Verzeichnung, Strahlfächer.
+- `importer_catalogue_agf(chemin)`: importiert einen Zemax-Glaskatalog `.agf`.
+- `modifier_surface` akzeptiert auch `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` und `reseau_ordre`; `optimiser_systeme` akzeptiert die Variablen `a4` bis `a10` und die Ziele `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---
 

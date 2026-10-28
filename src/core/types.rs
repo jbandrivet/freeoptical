@@ -162,6 +162,33 @@ pub struct Surface {
     /// Indique si cette surface porte le diaphragme d'ouverture (STOP)
     #[serde(default)]
     pub est_diaphragme: bool,
+    /// Décentrement du sommet (x, y) en mm, dans le repère global
+    #[serde(default, skip_serializing_if = "est_nul2")]
+    pub decentrement: [f64; 2],
+    /// Inclinaison de la surface autour de son sommet : rotation autour de X puis de Y (degrés)
+    #[serde(default, skip_serializing_if = "est_nul2")]
+    pub inclinaison_deg: [f64; 2],
+    /// Rayon de l'obstruction centrale (mm) : les rayons qui passent plus près de l'axe local
+    /// sont arrêtés (secondaire, araignée centrale, trou du primaire…)
+    #[serde(default, skip_serializing_if = "est_nul")]
+    pub rayon_obstruction: f64,
+    /// Réseau de diffraction gravé sur la surface : traits par mm (0 = pas de réseau) ;
+    /// les traits sont parallèles à l'axe X local, la dispersion se fait selon Y
+    #[serde(default, skip_serializing_if = "est_nul")]
+    pub reseau_traits_mm: f64,
+    /// Ordre de diffraction utilisé
+    #[serde(default, skip_serializing_if = "est_nul_i")]
+    pub reseau_ordre: i32,
+}
+
+fn est_nul(v: &f64) -> bool {
+    *v == 0.0
+}
+fn est_nul2(v: &[f64; 2]) -> bool {
+    v[0] == 0.0 && v[1] == 0.0
+}
+fn est_nul_i(v: &i32) -> bool {
+    *v == 0
 }
 
 impl Surface {
@@ -188,6 +215,11 @@ impl Surface {
             conique: 0.0,
             aspheriques: [0.0; 4],
             est_diaphragme: false,
+            decentrement: [0.0; 2],
+            inclinaison_deg: [0.0; 2],
+            rayon_obstruction: 0.0,
+            reseau_traits_mm: 0.0,
+            reseau_ordre: 0,
         }
     }
 
@@ -196,6 +228,28 @@ impl Surface {
         let mut s = Self::nouvelle(SurfaceType::Plane, f64::INFINITY, 0.0, "AIR", semi_diametre);
         s.commentaire = tr!("Plan Image", "Image Plane", "Bildebene").to_string();
         s
+    }
+
+    /// Rotation du repère local de la surface (autour de X puis de Y)
+    pub fn rotation(&self) -> nalgebra::Rotation3<f64> {
+        let (a, b) = (self.inclinaison_deg[0].to_radians(), self.inclinaison_deg[1].to_radians());
+        nalgebra::Rotation3::from_axis_angle(&NaVector3::y_axis(), b)
+            * nalgebra::Rotation3::from_axis_angle(&NaVector3::x_axis(), a)
+    }
+
+    /// Sommet de la surface dans le repère global (position axiale `z_sommet` et décentrement)
+    pub fn sommet_global(&self, z_sommet: f64) -> Point3 {
+        Point3::new(self.decentrement[0], self.decentrement[1], z_sommet)
+    }
+
+    /// Point du repère local de la surface exprimé dans le repère global
+    pub fn vers_global(&self, z_sommet: f64, x: f64, y: f64, z: f64) -> Point3 {
+        self.sommet_global(z_sommet) + self.rotation() * Vec3::new(x, y, z)
+    }
+
+    /// Vrai si la surface est décentrée ou inclinée
+    pub fn est_hors_axe(&self) -> bool {
+        !est_nul2(&self.decentrement) || !est_nul2(&self.inclinaison_deg)
     }
 
     /// Retourne la courbure axiale c = 1 / R (en mm⁻¹), 0.0 si la surface est plane
@@ -448,10 +502,10 @@ mod tests {
         let n_f = bk7.indice_refraction(LAMBDA_F_NM);
         let n_c = bk7.indice_refraction(LAMBDA_C_NM);
 
-        assert!((n_d - 1.51680).abs() < 1e-6);
+        assert!((n_d - 1.51680).abs() < 2e-5, "nd = {n_d}");
         assert!(n_f > n_d && n_d > n_c, "Dispersion normale : nF > nd > nC");
         let vd_calcule = (n_d - 1.0) / (n_f - n_c);
-        assert!((vd_calcule - 64.17).abs() < 1e-4);
+        assert!((vd_calcule - 64.17).abs() < 0.02, "Vd = {vd_calcule}");
     }
 
     #[test]

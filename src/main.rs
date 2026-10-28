@@ -27,6 +27,9 @@ pub struct Cli {
 
     #[arg(long, value_name = "fr|en|de")]
     pub langue: Option<String>,
+
+    #[arg(long, value_name = "FICHIER.agf")]
+    pub catalogue: Vec<String>,
 }
 
 /// Valeur de `--langue` lue avant l'analyse complète, pour afficher l'aide dans cette langue
@@ -94,6 +97,13 @@ fn commande_traduite() -> clap::Command {
                 "Zu ladende Systemdatei: .json oder .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)"
             ))
         })
+        .mut_arg("catalogue", |a| {
+            a.help(tr!(
+                "Importe un catalogue de verres Zemax (.agf), conservé pour les prochains démarrages",
+                "Import a Zemax glass catalogue (.agf), kept for the next starts",
+                "Importiert einen Zemax-Glaskatalog (.agf), der für spätere Starts erhalten bleibt"
+            ))
+        })
         .mut_arg("langue", |a| {
             a.help(tr!(
                 "Langue de l'interface : fr, en ou de (sinon le choix enregistré, puis la langue du système)",
@@ -120,6 +130,12 @@ async fn main() -> Result<()> {
                 )
             );
         }
+    }
+
+    core::glass::charger_catalogues_utilisateur();
+    for chemin in &args.catalogue {
+        let nb = core::glass::importer_catalogue_agf(std::path::Path::new(chemin), true).map_err(anyhow::Error::msg)?;
+        eprintln!("{}", trf!("{} : {} verres importés", "{}: {} glasses imported", "{}: {} Gläser importiert", chemin, nb));
     }
 
     let systeme = if let Some(chemin) = &args.fichier {
