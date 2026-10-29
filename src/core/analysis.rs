@@ -136,7 +136,11 @@ pub struct LongitudinalAberrationResult {
     pub lsa_max_mm: f64,
 }
 
-/// Calcule la courbe d'aberration sphérique longitudinale (LSA) sur l'axe
+/// Hauteur pupillaire du rayon quasi paraxial qui ouvre chaque courbe de LSA
+const HAUTEUR_PARAXIALE_LSA: f64 = 0.002;
+
+/// Calcule la courbe d'aberration sphérique longitudinale (LSA) sur l'axe : intersection de
+/// chaque rayon marginal avec l'axe, comptée depuis le plan image, une courbe par longueur d'onde
 pub fn calculer_aberration_spherique_longitudinale(
     systeme: &OpticalSystem,
     nb_pas: usize,
@@ -155,8 +159,8 @@ pub fn calculer_aberration_spherique_longitudinale(
     let mut lsa_ref_max = f64::NEG_INFINITY;
 
     for &lambda in &longueurs_onde {
-        for i in 1..=pas {
-            let py = (i as f64) / (pas as f64);
+        // Premier point au voisinage de l'axe : chaque courbe part du foyer paraxial de sa couleur
+        for py in std::iter::once(HAUTEUR_PARAXIALE_LSA).chain((1..=pas).map(|i| i as f64 / pas as f64)) {
             let ray = vise.rayon(0.0, py, 0.0, 0.0, lambda);
             let tr = tracer_rayon_unique(systeme, ray, (0.0, 0.0), (0.0, py));
             if let Some(hit) = tr.impact_plan_image() {

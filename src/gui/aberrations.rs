@@ -4,15 +4,9 @@
 use super::ondes::libelle_champ;
 use super::*;
 
-/// Couleur d'une longueur d'onde (bleu, vert, rouge comme les autres vues)
+/// Couleur d'une longueur d'onde (sa couleur dans le spectre)
 fn couleur_lambda(l: f64) -> Color32 {
-    if l < 520.0 {
-        COL_DOS_CYAN
-    } else if l <= 610.0 {
-        COL_DOS_GREEN
-    } else {
-        COL_DOS_RED
-    }
+    couleur_spectre(l)
 }
 
 /// Une courbe : points (x, y), couleur, en tirets ou non
@@ -50,8 +44,8 @@ pub(super) fn graphe(
         let y = y_min + (y_max - y_min) * k as f64 / 4.0;
         tracer_segment(&painter, vers(x, y_min), vers(x, y_max), 0.5, Color32::from_rgb(45, 45, 70));
         tracer_segment(&painter, vers(x_min, y), vers(x_max, y), 0.5, Color32::from_rgb(45, 45, 70));
-        painter.text(vers(x, y_min) + Vec2::new(0.0, 4.0), Align2::CENTER_TOP, format!("{x:.3}"), police.clone(), COL_DOS_GRAY);
-        painter.text(vers(x_min, y) - Vec2::new(5.0, 0.0), Align2::RIGHT_CENTER, format!("{y:.3}"), police.clone(), COL_DOS_GRAY);
+        painter.text(vers(x, y_min) + Vec2::new(0.0, 4.0), Align2::CENTER_TOP, graduation(x, (x_max - x_min) / 4.0), police.clone(), COL_DOS_GRAY);
+        painter.text(vers(x_min, y) - Vec2::new(5.0, 0.0), Align2::RIGHT_CENTER, graduation(y, (y_max - y_min) / 4.0), police.clone(), COL_DOS_GRAY);
     }
     if x_min < 0.0 && x_max > 0.0 {
         tracer_segment(&painter, vers(0.0, y_min), vers(0.0, y_max), 1.0, COL_DOS_GRAY);
@@ -71,6 +65,14 @@ pub(super) fn graphe(
             tracer_polyligne(&painter, &pts, 1.5, c.couleur);
         }
     }
+}
+
+/// Valeur d'une graduation, avec juste assez de décimales pour distinguer des graduations
+/// espacées de `pas`
+fn graduation(v: f64, pas: f64) -> String {
+    let decimales = if pas > 0.0 { (2.0 - pas.log10().floor()).clamp(0.0, 8.0) as usize } else { 3 };
+    let v = if v.abs() < pas * 1e-6 { 0.0 } else { v };
+    format!("{v:.decimales$}")
 }
 
 /// Échelle symétrique arrondie couvrant toutes les valeurs

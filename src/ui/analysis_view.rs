@@ -172,14 +172,35 @@ pub fn dessiner_aberration_spherique(f: &mut Frame, zone: Rect, app: &AppState) 
         .split(zone);
 
     let lsa = &app.lsa;
-    let max_dz = lsa
-        .echantillons
-        .iter()
-        .map(|s| s.delta_z_mm.abs())
-        .fold(0.2_f64, f64::max)
-        * 1.25;
+    // Échelle symétrique arrondie au-dessus du maximum
+    let m = lsa.echantillons.iter().fold(1e-4_f64, |a, s| a.max(s.delta_z_mm.abs())) * 1.1;
+    let p = 10f64.powf(m.log10().floor());
+    let max_dz = (m / p).ceil() * p;
 
-    let echantillons_clones = lsa.echantillons.clone();
+    // Une courbe par longueur d'onde, dans sa couleur spectrale
+    let mut longueurs: Vec<f64> = Vec::new();
+    for e in &lsa.echantillons {
+        if !longueurs.iter().any(|l| (l - e.longueur_onde_nm).abs() < 1e-9) {
+            longueurs.push(e.longueur_onde_nm);
+        }
+    }
+    let couleur = |l: f64| {
+        let (r, g, b) = crate::core::spectre::couleur_spectrale(l);
+        ratatui::style::Color::Rgb((55.0 + 200.0 * r) as u8, (55.0 + 200.0 * g) as u8, (55.0 + 200.0 * b) as u8)
+    };
+    let courbes: Vec<(ratatui::style::Color, Vec<(f64, f64)>)> = longueurs
+        .iter()
+        .map(|&l| {
+            let mut c: Vec<(f64, f64)> = lsa
+                .echantillons
+                .iter()
+                .filter(|s| (s.longueur_onde_nm - l).abs() < 1e-9)
+                .map(|s| (s.delta_z_mm, s.pupille_py))
+                .collect();
+            c.sort_by(|a, b| a.1.total_cmp(&b.1));
+            (couleur(l), c)
+        })
+        .collect();
 
     let canvas = Canvas::default()
         .background_color(DOS_BG)
@@ -202,27 +223,14 @@ pub fn dessiner_aberration_spherique(f: &mut Frame, zone: Rect, app: &AppState) 
                 y2: 0.0,
                 color: DOS_TEXT,
             });
-
-            // Regroupement et tracé par longueur d'onde
-            for &(lambda_min, lambda_max, couleur) in &[
-                (0.0, 520.0, DOS_CYAN),
-                (520.0, 610.0, DOS_GREEN),
-                (610.0, 2000.0, DOS_RED),
-            ] {
-                let mut courbe: Vec<(f64, f64)> = echantillons_clones
-                    .iter()
-                    .filter(|s| s.longueur_onde_nm >= lambda_min && s.longueur_onde_nm < lambda_max)
-                    .map(|s| (s.delta_z_mm, s.pupille_py))
-                    .collect();
-                courbe.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-
+            for (couleur, courbe) in &courbes {
                 for fen in courbe.windows(2) {
                     ctx.draw(&CanvasLine {
                         x1: fen[0].0,
                         y1: fen[0].1,
                         x2: fen[1].0,
                         y2: fen[1].1,
-                        color: couleur,
+                        color: *couleur,
                     });
                 }
             }
@@ -244,8 +252,14 @@ pub fn dessiner_aberration_spherique(f: &mut Frame, zone: Rect, app: &AppState) 
         ]),
         Line::from(vec![
             Span::styled(tr!("Échelle ΔZ        : ", "ΔZ scale          : ", "ΔZ-Maßstab        : "), Style::default().fg(DOS_TEXT)),
-            Span::styled(format!("±{:.3} mm", max_dz), Style::default().fg(DOS_WHITE)),
+            Span::styled(format!("±{:.*} mm", (-p.log10().floor()).max(0.0) as usize, max_dz), Style::default().fg(DOS_WHITE)),
         ]),
+        Line::from(
+            longueurs
+                .iter()
+                .map(|&l| Span::styled(format!("━ {l:.0} nm  "), Style::default().fg(couleur(l))))
+                .collect::<Vec<_>>(),
+        ),
         Line::from("──────────────────────────────"),
         Line::from(Span::styled(
             tr!("  Pupille Py   │   ΔZ (λ réf) ", "  Pupil Py     │   ΔZ (λ ref) ", "  Pupille Py   │   ΔZ (λ Ref) "),

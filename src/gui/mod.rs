@@ -2330,59 +2330,55 @@ impl FreeOpticalGuiApp {
 
     /// Dessine la courbe d'Aberration Sphérique Longitudinale (LSA) en traits continus
     fn dessiner_canevas_lsa(&mut self, ui: &mut egui::Ui) {
+        use aberrations::{Courbe, echelle, graphe};
         let lsa = &self.lsa;
+        // Une courbe par longueur d'onde, dans l'ordre des hauteurs pupillaires
+        let mut longueurs: Vec<f64> = Vec::new();
+        for e in &lsa.echantillons {
+            if !longueurs.iter().any(|l| (l - e.longueur_onde_nm).abs() < 1e-9) {
+                longueurs.push(e.longueur_onde_nm);
+            }
+        }
+        let courbes: Vec<Courbe> = longueurs
+            .iter()
+            .map(|&l| {
+                let mut points: Vec<(f64, f64)> = lsa
+                    .echantillons
+                    .iter()
+                    .filter(|e| (e.longueur_onde_nm - l).abs() < 1e-9)
+                    .map(|e| (e.delta_z_mm, e.pupille_py))
+                    .collect();
+                points.sort_by(|a, b| a.1.total_cmp(&b.1));
+                Courbe { points, couleur: couleur_spectre(l), tirets: false }
+            })
+            .collect();
         ui.horizontal_wrapped(|ui| {
             ui.label(
                 RichText::new(trf!(
-                    "Aberration Sphérique Longitudinale Crête-à-Crête (LSA) = {:.4} mm   [Axe Horizontal : ΔZ (mm) | Axe Vertical : Hauteur Pupille Py]", "Peak-to-valley Longitudinal Spherical Aberration (LSA) = {:.4} mm   [Horizontal axis: ΔZ (mm) | Vertical axis: pupil height Py]", "Longitudinale sphärische Aberration Spitze-Tal (LSA) = {:.4} mm   [Horizontale Achse: ΔZ (mm) | Vertikale Achse: Pupillenhöhe Py]",
+                    "LSA crête-à-crête à {:.1} nm = {:.4} mm — intersection des rayons avec l'axe, depuis le plan image :",
+                    "Peak-to-valley LSA at {:.1} nm = {:.4} mm — ray intersections with the axis, from the image plane:",
+                    "LSA Spitze-Tal bei {:.1} nm = {:.4} mm — Achsenschnittpunkte der Strahlen, ab der Bildebene:",
+                    self.systeme.longueur_onde_ref_nm,
                     lsa.lsa_max_mm
                 ))
                 .monospace()
                 .strong()
                 .color(COL_DOS_YELLOW),
             );
-        });
-
-        let dispo = ui.available_size();
-        let (resp, painter) = ui.allocate_painter(dispo, Sense::hover());
-        let rect = resp.rect;
-        painter.rect_filled(rect, 0.0, COL_DOS_CANVAS);
-
-        let max_dz = lsa
-            .echantillons
-            .iter()
-            .map(|s| s.delta_z_mm.abs())
-            .fold(0.2_f64, f64::max)
-            * 1.25;
-
-        let marge = 40.0;
-        let z_plot = rect.shrink(marge);
-        let vers_pt = |dz: f64, py: f64| -> Pos2 {
-            let x = z_plot.center().x + ((dz / max_dz) as f32) * (z_plot.width() * 0.5);
-            let y = z_plot.bottom() - (py as f32) * z_plot.height();
-            Pos2::new(x, y)
-        };
-
-        tracer_segment(&painter, vers_pt(0.0, 0.0), vers_pt(0.0, 1.0), 1.32, COL_DOS_YELLOW);
-        tracer_segment(&painter, vers_pt(-max_dz, 0.0), vers_pt(max_dz, 0.0), 1.2, COL_DOS_GRAY);
-
-        for &(l_min, l_max, col) in &[
-            (0.0, 520.0, COL_DOS_CYAN),
-            (520.0, 610.0, COL_DOS_GREEN),
-            (610.0, 2000.0, COL_DOS_RED),
-        ] {
-            let mut pts: Vec<(f64, f64)> = lsa
-                .echantillons
-                .iter()
-                .filter(|s| s.longueur_onde_nm >= l_min && s.longueur_onde_nm < l_max)
-                .map(|s| (s.delta_z_mm, s.pupille_py))
-                .collect();
-            pts.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            let poly: Vec<Pos2> = pts.into_iter().map(|(dz, py)| vers_pt(dz, py)).collect();
-            if poly.len() >= 2 {
-                tracer_polyligne(&painter, &poly, 1.56, col);
+            for &l in &longueurs {
+                ui.label(RichText::new(format!("— {l:.1} nm")).monospace().strong().color(couleur_spectre(l)));
             }
-        }
+        });
+        let e = echelle(lsa.echantillons.iter().map(|s| s.delta_z_mm), 1e-4);
+        graphe(
+            ui,
+            ui.available_size(),
+            tr!("Hauteur pupillaire py", "Pupil height py", "Pupillenhöhe py"),
+            tr!("ΔZ (mm)", "ΔZ (mm)", "ΔZ (mm)"),
+            (-e, e),
+            (0.0, 1.0),
+            &courbes,
+        );
     }
 
     fn dessiner_table_verres(&mut self, ui: &mut egui::Ui) {
@@ -2447,6 +2443,12 @@ impl FreeOpticalGuiApp {
                 });
         });
     }
+}
+
+/// Couleur d'une longueur d'onde pour les courbes (spectre visible, éclaircie sur fond noir)
+pub(super) fn couleur_spectre(longueur_onde_nm: f64) -> Color32 {
+    let (r, g, b) = crate::core::spectre::couleur_spectrale(longueur_onde_nm);
+    Color32::from_rgb((55.0 + 200.0 * r) as u8, (55.0 + 200.0 * g) as u8, (55.0 + 200.0 * b) as u8)
 }
 
 /// Sauvegarde le système dans `systeme_optique.json` et retourne le message de statut
