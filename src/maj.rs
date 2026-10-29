@@ -188,6 +188,55 @@ pub fn relancer() -> Result<(), String> {
         .map_err(|e| trf!("Relance impossible : {e}", "Cannot restart: {e}", "Neustart nicht möglich: {e}"))
 }
 
+/// Version de l'exécutable installé par le paquet (`/usr/bin/freeoptical --version`)
+fn version_installee() -> Option<String> {
+    let sortie = Command::new(BINAIRE_INSTALLE).arg("--version").env(VARIABLE_RELANCE, "1").output().ok()?;
+    let texte = String::from_utf8_lossy(&sortie.stdout);
+    texte.split_whitespace().last().map(str::to_string)
+}
+
+/// Variable posée lors d'une passation, pour ne jamais relancer en boucle
+const VARIABLE_RELANCE: &str = "FREEOPTICAL_RELANCE";
+
+/// Au démarrage : si ce programme n'est pas celui du paquet (vieille copie installée à la main,
+/// raccourci qui pointe ailleurs) et que la version du paquet est plus récente, on passe la main
+/// à celle-ci (le processus est remplacé, mêmes arguments) ; ainsi une mise à jour installée
+/// reste en service d'une ouverture à l'autre, quel que soit le lanceur. Ne revient pas en cas
+/// de passation.
+#[cfg(unix)]
+pub fn passer_a_la_version_installee() {
+    use std::os::unix::process::CommandExt;
+    if std::env::var_os(VARIABLE_RELANCE).is_some() || !Path::new(BINAIRE_INSTALLE).exists() {
+        return;
+    }
+    let ici = std::env::current_exe().and_then(|p| p.canonicalize()).ok();
+    let installe = Path::new(BINAIRE_INSTALLE).canonicalize().ok();
+    if ici.is_none() || ici == installe {
+        return;
+    }
+    let Some(version) = version_installee() else { return };
+    if !est_plus_recente(&version, VERSION_COURANTE) {
+        return;
+    }
+    eprintln!(
+        "{}",
+        trf!(
+            "FreeOptical {} (copie {}) : passage à la version {} installée dans {}.",
+            "FreeOptical {} (copy {}): switching to version {} installed in {}.",
+            "FreeOptical {} (Kopie {}): Wechsel zur in {} installierten Version {}.",
+            VERSION_COURANTE,
+            ici.map(|p| p.display().to_string()).unwrap_or_default(),
+            version,
+            BINAIRE_INSTALLE
+        )
+    );
+    // exec ne revient qu'en cas d'échec : on continue alors avec cette copie
+    let _ = Command::new(BINAIRE_INSTALLE).args(std::env::args_os().skip(1)).env(VARIABLE_RELANCE, "1").exec();
+}
+
+#[cfg(not(unix))]
+pub fn passer_a_la_version_installee() {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

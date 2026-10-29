@@ -117,6 +117,8 @@ fn commande_traduite() -> clap::Command {
 async fn main() -> Result<()> {
     let arguments: Vec<String> = std::env::args().collect();
     i18n::initialiser(langue_demandee(&arguments));
+    // Une copie plus ancienne que celle du paquet lui passe la main
+    maj::passer_a_la_version_installee();
     let args = Cli::from_arg_matches(&commande_traduite().get_matches_from(&arguments))?;
     if let Some(code) = &args.langue {
         if Langue::depuis_code(code).is_none() {

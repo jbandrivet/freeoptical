@@ -289,6 +289,16 @@ pub struct FreeOpticalGuiApp {
     pub confirmer_remplacement: Option<PathBuf>,
     /// Fichier .json du système courant (ouvert ou enregistré), pour « Enregistrer »
     pub chemin_courant: Option<PathBuf>,
+    /// Système tel qu'il a été ouvert ou enregistré (JSON), pour savoir s'il a été modifié
+    pub systeme_enregistre: String,
+    /// Fenêtre « Enregistrer avant de quitter ? » affichée
+    pub confirmer_fermeture: bool,
+    /// Fermeture acceptée (enregistré, ou quitter sans enregistrer)
+    pub fermeture_autorisee: bool,
+    /// Quitter dès que l'enregistrement demandé à la fermeture aura réussi
+    pub quitter_apres_enregistrement: bool,
+    /// Demande de fermeture à envoyer à la prochaine image
+    pub fermer_maintenant: bool,
     /// Champ, longueur d'onde et résultats des analyses front d'onde / PSF / FTM
     pub ondes: AnalysesOndes,
     textures_ondes: ondes::TexturesOndes,
@@ -319,7 +329,7 @@ impl FreeOpticalGuiApp {
             systeme.nom, paraxial.focale_effl_mm, spot.rayon_rms_um
         );
 
-        Self {
+        let mut app = Self {
             systeme,
             paraxial,
             spot,
@@ -349,10 +359,17 @@ impl FreeOpticalGuiApp {
             nom_enregistrement: String::new(),
             confirmer_remplacement: None,
             chemin_courant: None,
+            systeme_enregistre: String::new(),
+            confirmer_fermeture: false,
+            fermeture_autorisee: false,
+            quitter_apres_enregistrement: false,
+            fermer_maintenant: false,
             bilan_import: None,
             bath: bath::EtatBath::default(),
             alertes_solves,
-        }
+        };
+        app.marquer_enregistre();
+        app
     }
 
     pub fn recalculer(&mut self) {
@@ -374,6 +391,74 @@ impl FreeOpticalGuiApp {
         self.pan_offset = Vec2::ZERO;
         self.recalculer();
         self.statut_message = msg.into();
+        self.marquer_enregistre();
+    }
+
+    /// Mémorise l'état actuel comme « enregistré » (rien à demander à la fermeture)
+    pub fn marquer_enregistre(&mut self) {
+        self.systeme_enregistre = serde_json::to_string(&self.systeme).unwrap_or_default();
+    }
+
+    /// Vrai si le système a changé depuis son ouverture ou son dernier enregistrement
+    pub fn est_modifie(&self) -> bool {
+        serde_json::to_string(&self.systeme).unwrap_or_default() != self.systeme_enregistre
+    }
+
+    /// Fenêtre « Enregistrer les modifications avant de quitter ? »
+    fn dessiner_confirmation_fermeture(&mut self, ctx: &Context) {
+        if !self.confirmer_fermeture {
+            return;
+        }
+        let mut choix = 0;
+        egui::Window::new(RichText::new(tr!(" Quitter FreeOptical ", " Quit FreeOptical ", " FreeOptical beenden ")).monospace().strong())
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(trf!(
+                    "Le système « {} » a été modifié. Enregistrer les modifications avant de quitter ?",
+                    "The system \"{}\" has been modified. Save the changes before quitting?",
+                    "Das System „{}“ wurde geändert. Änderungen vor dem Beenden speichern?",
+                    self.systeme.nom
+                ));
+                if let Some(c) = &self.chemin_courant {
+                    ui.label(RichText::new(c.display().to_string()).monospace().color(COL_DOS_GRAY));
+                }
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new(tr!("Enregistrer", "Save", "Speichern")).strong()).clicked() {
+                        choix = 1;
+                    }
+                    if ui.button(tr!("Quitter sans enregistrer", "Quit without saving", "Ohne Speichern beenden")).clicked() {
+                        choix = 2;
+                    }
+                    if ui.button(tr!("Annuler", "Cancel", "Abbrechen")).clicked() {
+                        choix = 3;
+                    }
+                });
+            });
+        match choix {
+            1 => {
+                self.confirmer_fermeture = false;
+                match self.chemin_courant.clone() {
+                    Some(c) => {
+                        if self.enregistrer_sous(&c) {
+                            self.fermer_maintenant = true;
+                        }
+                    }
+                    None => {
+                        self.quitter_apres_enregistrement = true;
+                        self.afficher_fichiers(fichiers::ModeFichiers::Enregistrer);
+                    }
+                }
+            }
+            2 => {
+                self.confirmer_fermeture = false;
+                self.fermer_maintenant = true;
+            }
+            3 => self.confirmer_fermeture = false,
+            _ => {}
+        }
     }
 
     /// Ouvre un fichier système : `.json` FreeOptical, ou `.TDS` / `.RLD` / `.DES` des programmes
@@ -718,6 +803,16 @@ impl FreeOpticalGuiApp {
 impl eframe::App for FreeOpticalGuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Croix de la fenêtre ou Fichier → Quitter : demander d'enregistrer un système modifié
+        if self.fermer_maintenant {
+            self.fermer_maintenant = false;
+            self.fermeture_autorisee = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if ctx.input(|i| i.viewport().close_requested()) && !self.fermeture_autorisee && self.est_modifie() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.confirmer_fermeture = true;
+        }
         // Raccourcis clavier globaux
         let (ouvrir, enregistrer, enregistrer_sous) = ctx.input(|i| {
             let c = i.modifiers.command;
@@ -1181,6 +1276,7 @@ impl eframe::App for FreeOpticalGuiApp {
 
         self.dessiner_fenetre_maj(&ctx);
         self.dessiner_fenetre_fichiers(&ctx);
+        self.dessiner_confirmation_fermeture(&ctx);
         self.dessiner_fenetre_optimisation(&ctx);
         self.dessiner_fenetre_systeme(&ctx);
         self.dessiner_fenetre_bath(&ctx);

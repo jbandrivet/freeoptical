@@ -109,6 +109,7 @@ impl FreeOpticalGuiApp {
             Ok(()) => {
                 self.statut_message = trf!("Système enregistré dans {}.", "System saved to {}.", "System in {} gespeichert.", chemin.display());
                 self.chemin_courant = Some(chemin.to_path_buf());
+                self.marquer_enregistre();
                 if let Some(d) = chemin.parent() {
                     memoriser_dossier(d);
                 }
@@ -318,10 +319,15 @@ impl FreeOpticalGuiApp {
         if let Some(c) = a_enregistrer {
             if self.enregistrer_sous(&c) {
                 fermer = true;
+                // Enregistrement demandé en quittant : on quitte maintenant
+                if self.quitter_apres_enregistrement {
+                    self.fermer_maintenant = true;
+                }
             }
         }
         if !ouverte || fermer {
             self.fenetre_import = false;
+            self.quitter_apres_enregistrement = false;
         }
     }
 }
@@ -335,13 +341,19 @@ mod tests {
         let dossier = std::env::temp_dir().join(format!("freeoptical-fichiers-{}", std::process::id()));
         std::fs::create_dir_all(&dossier).unwrap();
         let mut app = FreeOpticalGuiApp::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        // Rien à enregistrer au démarrage ; une modification est détectée, l'enregistrement l'efface
+        assert!(!app.est_modifie());
+        app.systeme.surfaces[0].epaisseur += 0.5;
+        assert!(app.est_modifie());
         let chemin = dossier.join("doublet.json");
         assert!(app.enregistrer_sous(&chemin));
+        assert!(!app.est_modifie());
         assert_eq!(app.chemin_courant.as_deref(), Some(chemin.as_path()));
         // Un exemple chargé oublie le fichier courant ; la réouverture le retrouve
         app.charger_systeme(OpticalSystem::nouveau("vierge", 587.5618), "");
         assert!(app.chemin_courant.is_none());
         assert!(app.ouvrir_fichier(&chemin));
+        assert!(!app.est_modifie());
         assert_eq!(app.systeme.surfaces.len(), 4);
         assert_eq!(app.chemin_courant.as_deref(), Some(chemin.as_path()));
         // « Enregistrer » réécrit le fichier courant
