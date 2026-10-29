@@ -19,7 +19,7 @@
 <meta property="og:image" content="https://jbandrivet.github.io/freeoptical/img/de-front.jpg">
 <meta property="og:locale" content="de_DE">
 <meta name="twitter:card" content="summary_large_image">
-<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "FreeOptical", "description": "FreeOptical ist freie, kostenlose Optikdesign-Software für Linux: Strahlverfolgung, Wellenfront und Zernike, PSF, MTF, Seidel-Aberrationen, Optimierung, Schott- und Ohara-Gläser (.agf), Teleskope, Refraktoren und Spektrographen. Auf Deutsch, Englisch und Französisch.", "url": "https://jbandrivet.github.io/freeoptical/de/", "inLanguage": ["fr", "en", "de"], "applicationCategory": "DesignApplication", "applicationSubCategory": "Optical design", "operatingSystem": "Linux", "softwareVersion": "0.7.0", "license": "https://opensource.org/licenses/MIT", "downloadUrl": "https://github.com/jbandrivet/freeoptical/releases/latest", "codeRepository": "https://github.com/jbandrivet/freeoptical", "screenshot": "https://jbandrivet.github.io/freeoptical/img/de-coupe.jpg", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "Jean-Baptiste Andrivet"}, "programmingLanguage": "Rust"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "FreeOptical", "description": "FreeOptical ist freie, kostenlose Optikdesign-Software für Linux: Strahlverfolgung, Wellenfront und Zernike, PSF, MTF, Seidel-Aberrationen, Optimierung, Schott- und Ohara-Gläser (.agf), Teleskope, Refraktoren und Spektrographen. Auf Deutsch, Englisch und Französisch.", "url": "https://jbandrivet.github.io/freeoptical/de/", "inLanguage": ["fr", "en", "de"], "applicationCategory": "DesignApplication", "applicationSubCategory": "Optical design", "operatingSystem": "Linux", "softwareVersion": "0.9.0", "license": "https://opensource.org/licenses/MIT", "downloadUrl": "https://github.com/jbandrivet/freeoptical/releases/latest", "codeRepository": "https://github.com/jbandrivet/freeoptical", "screenshot": "https://jbandrivet.github.io/freeoptical/img/de-coupe.jpg", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "Jean-Baptiste Andrivet"}, "programmingLanguage": "Rust"}</script>
 <style>
 :root{--fond:#000a3c;--panneau:#00128f;--jaune:#ffff55;--cyan:#55ffff;--texte:#eef2ff;--gris:#c3cddc}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fond);color:var(--texte);line-height:1.55}
@@ -45,7 +45,7 @@ footer{text-align:center;color:var(--gris);padding:24px;border-top:1px solid #2a
 <img src="../img/logo.jpg" alt="FreeOptical" width="900" height="502">
 <h1>Freie, kostenlose Software für Optikdesign und Simulation unter Linux</h1>
 <p class="sous">Objektive, Refraktoren, Teleskope und Spektrographen Fläche für Fläche entwerfen und analysieren, wie mit den großen kommerziellen Programmen, ohne Lizenz oder Abonnement.</p>
-<p class="boutons"><a class="principal" href="https://github.com/jbandrivet/freeoptical/releases/latest">Version herunterladen 0.7.0</a><a class="secondaire" href="https://github.com/jbandrivet/freeoptical">Quellcode auf GitHub</a></p>
+<p class="boutons"><a class="principal" href="https://github.com/jbandrivet/freeoptical/releases/latest">Version herunterladen 0.9.0</a><a class="secondaire" href="https://github.com/jbandrivet/freeoptical">Quellcode auf GitHub</a></p>
 </header>
 <main>
 <h2>Funktionen</h2>
@@ -57,6 +57,7 @@ footer{text-align:center;color:var(--gris);padding:24px;border-top:1px solid #2a
 <div class="carte"><h3>Optimierung</h3><p>Gedämpfte kleinste Quadrate (DLS) über alle Felder und Farben: Radien, Dicken, Kegelschnitte, Asphären, Brennweite und Nebenbedingungen.</p></div>
 <div class="carte"><h3>Spektrographen und andere Instrumente</h3><p>Spektrographen (Dispersion, Spaltbild, Auflösungsvermögen R), nahe Objekte (Mikroskope, Relais), afokale Systeme (Okulare, Ferngläser), ideale Linse.</p></div>
 <div class="carte"><h3>Spiegelprüfung</h3><p>Bath-Interferometer: Interferogramm eines Spiegels im Krümmungsmittelpunkt, Auswertung von Interferogramm-Fotos, gemessene Konik, Oberflächenfehler und Strehl-Verhältnis.</p></div>
+<div class="carte"><h3>Wie professionelle Software</h3><p>Koordinatenbrüche für gefaltete Systeme, Solves und Übernahmen (automatischer Fokus, vorgegebene Blendenzahl, aplanatische Fläche), eingeschlossene Energie, Farbfehler, Strahlen-Footprints, Import von Zemax-Dateien .zmx.</p></div>
 <div class="carte"><h3>Offen und skriptfähig</h3><p>Grafische Oberfläche, Terminal-Oberfläche und MCP-Server zur Steuerung durch einen KI-Agenten. Import von TDESIGN-, LENSDES- und RAYTRACE-Dateien (Rutten und van Venrooij).</p></div>
 </div>
 <h2>Bildschirmfotos</h2>
@@ -68,7 +69,7 @@ footer{text-align:center;color:var(--gris);padding:24px;border-top:1px solid #2a
 </div>
 <h2>Installation</h2>
 <p>Debian, Ubuntu und Derivate (amd64): das <code>.deb</code>-Paket der neuesten Version herunterladen, dann:</p>
-<pre>sudo apt install ./freeoptical_0.7.0_amd64.deb</pre>
+<pre>sudo apt install ./freeoptical_0.9.0_amd64.deb</pre>
 <p>Spätere Versionen werden über die Schaltfläche <b>Update</b> des Programms installiert. Aus den Quellen: <code>cargo build --release</code>.</p>
 <h2>Für wen?</h2>
 <p>Amateurastronomen, die ihre Spiegel schleifen oder Instrumente entwerfen, Studierende und Lehrende der Optik, Ingenieure auf der Suche nach einer freien Alternative zu kommerzieller Optikdesign-Software wie Zemax OpticStudio, Code V oder OSLO.</p>

@@ -268,7 +268,7 @@ pub fn tracer_rayon_unique(
     champ_deg: (f64, f64),
     pupille_norm: (f64, f64),
 ) -> TracedRay {
-    let positions_z = systeme.positions_z_sommets();
+    let reperes = systeme.reperes();
     let mut courant = rayon_initial.clone();
     let mut impacts = Vec::with_capacity(systeme.surfaces.len());
     let mut n_courant = 1.0; // Milieu objet initial = Air (n = 1.0)
@@ -281,13 +281,27 @@ pub fn tracer_rayon_unique(
         .any(|s| s.type_surface == SurfaceType::Ideale)
         .then(|| crate::core::paraxial::objets_lentilles_ideales(systeme));
 
-    for (idx, (surface, &z_sommet)) in systeme.surfaces.iter().zip(positions_z.iter()).enumerate() {
+    for (idx, (surface, repere)) in systeme.surfaces.iter().zip(reperes.iter()).enumerate() {
         // Repère local de la surface : sommet décentré, axes inclinés
-        let sommet_global = surface.sommet_global(z_sommet);
-        let rotation = surface.rotation();
+        let sommet_global = repere.origine;
+        let rotation = repere.rotation;
         let inverse = rotation.inverse();
         let p0_local = Point3::from(inverse * (courant.origine - sommet_global));
         let dir_local = inverse * courant.direction;
+
+        // Rupture de repère : aucune interaction, le rayon garde son point et sa direction
+        if surface.est_coupure() && idx + 1 < nb_surfaces {
+            impacts.push(SurfaceHit {
+                index_surface: idx,
+                point_global: courant.origine,
+                point_local: p0_local,
+                normale: rotation * Vec3::new(0.0, 0.0, 1.0),
+                direction_sortante: courant.direction,
+                indice_apres: n_courant,
+                vignette: false,
+            });
+            continue;
+        }
 
         let Some(t) = intersecter_surface_locale(&p0_local, &dir_local, surface) else {
             courant.vignette = true;
@@ -405,7 +419,7 @@ pub fn tracer_rayon_unique(
 /// 1000 mm (1 mm = 1 mrad, 1 µm = 1 µrad)
 pub fn coordonnees_image(systeme: &OpticalSystem, impact: &SurfaceHit) -> (f64, f64) {
     if systeme.afocal {
-        let inverse = systeme.surfaces.last().map(|s| s.rotation().inverse()).unwrap_or_default();
+        let inverse = systeme.reperes().last().map(|r| r.rotation.inverse()).unwrap_or_default();
         let d = inverse * impact.direction_sortante;
         if d.z.abs() < 1e-12 {
             return (f64::NAN, f64::NAN);

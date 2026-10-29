@@ -108,6 +108,13 @@ pub fn nom_zernike(j: usize) -> String {
 // Différence de marche
 // ---------------------------------------------------------------------------------------------
 
+/// Résultats des analyses chromatiques (décalage focal, couleur latérale)
+#[derive(Debug, Clone)]
+pub struct ResultatChromatique {
+    pub decalage: Result<crate::core::chromatique::DecalageFocal, String>,
+    pub laterale: Result<crate::core::chromatique::CouleurLaterale, String>,
+}
+
 /// Sphère (ou plan, en espace image télécentrique) de référence d'un champ
 #[derive(Debug, Clone, Copy)]
 struct Reference {
@@ -164,7 +171,7 @@ fn reference(sys: &OpticalSystem, champ: (f64, f64)) -> Result<Reference, String
     let mut rayon = None;
     if sys.afocal {
         // Espace image afocal : front d'onde rapporté à une onde plane (sphère de rayon infini)
-    } else if sys.surfaces.iter().any(|s| s.est_hors_axe()) {
+    } else if sys.est_hors_axe() {
         // Système replié ou décentré : distance de la pupille de sortie à l'image mesurée le long
         // du rayon principal, depuis son impact sur la dernière surface optique
         let n_imp = chef.impacts.len();
@@ -462,7 +469,7 @@ pub struct ResultatFtm {
     pub champ_deg: (f64, f64),
 }
 
-fn fft2(planificateur: &mut FftPlanner<f64>, donnees: &mut [Complex<f64>], n: usize) {
+pub(crate) fn fft2(planificateur: &mut FftPlanner<f64>, donnees: &mut [Complex<f64>], n: usize) {
     let fft = planificateur.plan_fft_forward(n);
     for ligne in donnees.chunks_mut(n) {
         fft.process(ligne);
@@ -649,6 +656,11 @@ pub struct AnalysesOndes {
     courbure: Option<Result<crate::core::aberrations::CourbureDistorsion, String>>,
     seidel: Option<Result<crate::core::aberrations::Seidel, String>>,
     spectre: Option<Result<crate::core::spectre::Spectre, String>>,
+    energie: Option<Result<crate::core::energie::EnergieEncerclee, String>>,
+    chromatique: Option<ResultatChromatique>,
+    empreinte: Option<Result<crate::core::empreinte::Empreinte, String>>,
+    /// Surface étudiée par la vue d'empreinte des faisceaux (0..N-1)
+    pub surface_empreinte: usize,
     /// Domaine de longueurs d'onde de l'analyse spectrale (nm) ; 0 = d'après le système
     pub spectre_min_nm: f64,
     pub spectre_max_nm: f64,
@@ -667,6 +679,9 @@ impl AnalysesOndes {
         self.courbure = None;
         self.seidel = None;
         self.spectre = None;
+        self.energie = None;
+        self.chromatique = None;
+        self.empreinte = None;
         self.generation += 1;
     }
 
@@ -773,6 +788,62 @@ impl AnalysesOndes {
             .get_or_insert_with(|| crate::core::spectre::calculer_spectre(sys, champ, a, b, 41, fente))
     }
 
+    /// Énergie encerclée du champ choisi (géométrique et par diffraction)
+    pub fn energie(&mut self, sys: &OpticalSystem) -> &Result<crate::core::energie::EnergieEncerclee, String> {
+        self.borner(sys);
+        let champ = self.champ_deg(sys);
+        self.energie.get_or_insert_with(|| crate::core::energie::calculer_energie_encerclee(sys, champ, true))
+    }
+    pub fn energie_calculee(&self) -> Option<&Result<crate::core::energie::EnergieEncerclee, String>> {
+        self.energie.as_ref()
+    }
+
+    /// Décalage focal chromatique et couleur latérale
+    pub fn chromatique(&mut self, sys: &OpticalSystem) -> &ResultatChromatique {
+        self.chromatique.get_or_insert_with(|| ResultatChromatique {
+            decalage: crate::core::chromatique::calculer_decalage_focal(sys, 41),
+            laterale: crate::core::chromatique::calculer_couleur_laterale(sys, 21),
+        })
+    }
+    pub fn chromatique_calcule(&self) -> Option<&ResultatChromatique> {
+        self.chromatique.as_ref()
+    }
+
+    /// Empreinte des faisceaux sur la surface choisie
+    pub fn empreinte(&mut self, sys: &OpticalSystem) -> &Result<crate::core::empreinte::Empreinte, String> {
+        if self.surface_empreinte >= sys.surfaces.len() {
+            self.surface_empreinte = 0;
+        }
+        let s = self.surface_empreinte;
+        self.empreinte.get_or_insert_with(|| crate::core::empreinte::calculer_empreinte(sys, s, 6))
+    }
+    pub fn empreinte_calculee(&self) -> Option<&Result<crate::core::empreinte::Empreinte, String>> {
+        self.empreinte.as_ref()
+    }
+    /// Choisit la surface de l'empreinte (seule cette analyse est recalculée)
+    pub fn choisir_surface_empreinte(&mut self, surface: usize) {
+        if surface != self.surface_empreinte {
+            self.surface_empreinte = surface;
+            self.empreinte = None;
+            self.generation += 1;
+        }
+    }
+
+    /// Surface suivante (ou précédente) pour l'empreinte, en sautant les ruptures de repère
+    pub fn surface_empreinte_suivante(&mut self, sys: &OpticalSystem, pas: isize) {
+        let n = sys.surfaces.len().max(1) as isize;
+        let mut k = self.surface_empreinte as isize;
+        for _ in 0..n {
+            k = (k + pas).rem_euclid(n);
+            if !sys.surfaces[k as usize].est_coupure() {
+                break;
+            }
+        }
+        self.surface_empreinte = k as usize;
+        self.empreinte = None;
+        self.generation += 1;
+    }
+
     pub fn spectre_calcule(&self) -> Option<&Result<crate::core::spectre::Spectre, String>> {
         self.spectre.as_ref()
     }
@@ -853,6 +924,79 @@ mod tests {
         assert!((psf.f_travail - 5.0).abs() < 0.01, "F/# {}", psf.f_travail);
         assert!(psf.strehl > 0.999);
         assert!((ftm.frequence_coupure_cyc_mm - 340.4).abs() < 1.0);
+    }
+
+    #[test]
+    fn newton_replie_par_ruptures_de_repere() {
+        // Même Newton décrit comme dans Zemax : rupture de 45°, miroir plan, rupture de 45°,
+        // puis 200 mm le long du nouvel axe (positif après deux miroirs) jusqu'au plan image,
+        // qui se trouve alors perpendiculaire au faisceau sans réglage manuel
+        let mut sys = miroir(-2000.0, -1.0, 200.0, 0.0);
+        sys.surfaces[0].epaisseur = -800.0;
+        let mut cb = Surface::nouvelle(SurfaceType::CoupureRepere, f64::INFINITY, 0.0, "AIR", 1.0);
+        cb.inclinaison_deg = [45.0, 0.0];
+        let plan = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 0.0, "MIROIR", 60.0);
+        let mut cb2 = cb.clone();
+        cb2.epaisseur = 200.0;
+        let image = Surface::plan_image(20.0);
+        sys.surfaces = vec![sys.surfaces[0].clone(), cb, plan, cb2, image];
+        let reps = sys.reperes();
+        let img = reps.last().unwrap();
+        assert!((img.origine - Point3::new(0.0, -200.0, -800.0)).norm() < 1e-9, "{:?}", img.origine);
+        assert!((img.axe() - Vec3::new(0.0, -1.0, 0.0)).norm() < 1e-12);
+        assert_eq!(sys.sens_propagation_image(), 1.0);
+        let p = calculer_paraxial(&sys);
+        assert!((p.focale_effl_mm - 1000.0).abs() < 1e-9 && (p.tirage_bfl_mm - 200.0).abs() < 1e-9, "{p:?}");
+        let spot = crate::core::analysis::calculer_spot_diagram(&sys, (0.0, 0.0), 6);
+        assert_eq!(spot.nb_rayons_valides, 127);
+        assert!(spot.rayon_rms_um < 1e-3, "spot {} µm", spot.rayon_rms_um);
+        assert!(spot.centroide_mm.0.hypot(spot.centroide_mm.1) < 1e-6);
+        let carte = calculer_front_onde(&sys, (0.0, 0.0), 587.5618, 32).unwrap();
+        assert!(carte.rms_ondes < 1e-3, "RMS {}", carte.rms_ondes);
+        let (psf, _) = calculer_psf_ftm(&sys, (0.0, 0.0), None).unwrap();
+        assert!((psf.f_travail - 5.0).abs() < 0.01, "F/# {}", psf.f_travail);
+        // Hors axe : même image que le Newton non replié (coma de la parabole)
+        let droit = miroir(-2000.0, -1.0, 200.0, 0.0);
+        let a = crate::core::analysis::calculer_spot_diagram(&droit, (0.0, 0.5), 6);
+        let b = crate::core::analysis::calculer_spot_diagram(&sys, (0.0, 0.5), 6);
+        assert_eq!(a.nb_rayons_valides, b.nb_rayons_valides);
+        assert!((a.rayon_rms_um - b.rayon_rms_um).abs() < 1e-6, "{} / {}", a.rayon_rms_um, b.rayon_rms_um);
+        assert!((a.centroide_mm.1.abs() - b.centroide_mm.1.abs()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rupture_puis_rupture_inverse_sans_effet() {
+        let base = OpticalSystem::doublet_achromatique_defaut();
+        let mut sys = base.clone();
+        let mut cb = Surface::nouvelle(SurfaceType::CoupureRepere, f64::INFINITY, 0.0, "AIR", 1.0);
+        cb.decentrement = [1.5, -2.0];
+        cb.inclinaison_deg = [7.0, -3.0];
+        cb.inclinaison_z_deg = 12.0;
+        // Zemax : la rupture aux valeurs opposées, inclinaison avant décentrement, défait la première
+        let mut inverse = cb.clone();
+        inverse.decentrement = [-1.5, 2.0];
+        inverse.inclinaison_deg = [-7.0, 3.0];
+        inverse.inclinaison_z_deg = -12.0;
+        inverse.inclinaison_avant_decentrement = true;
+        sys.surfaces.insert(2, inverse);
+        sys.surfaces.insert(2, cb);
+        assert_ne!(sys.reperes()[2], base.reperes()[2]);
+        let (ra, rb) = (base.reperes(), sys.reperes());
+        assert!((ra[2].origine - rb[4].origine).norm() < 1e-9);
+        assert!((ra[3].origine - rb[5].origine).norm() < 1e-9);
+        assert!((ra[3].rotation.matrix() - rb[5].rotation.matrix()).norm() < 1e-12);
+        for champ in [(0.0, 0.0), (0.0, 2.5)] {
+            let a = crate::core::analysis::calculer_spot_diagram(&base, champ, 5);
+            let b = crate::core::analysis::calculer_spot_diagram(&sys, champ, 5);
+            assert!((a.rayon_rms_um - b.rayon_rms_um).abs() < 1e-6);
+        }
+        let (pa, pb) = (calculer_paraxial(&base), calculer_paraxial(&sys));
+        assert!((pa.focale_effl_mm - pb.focale_effl_mm).abs() < 1e-9);
+        let (sa, sb) = (
+            crate::core::aberrations::calculer_seidel(&base).unwrap(),
+            crate::core::aberrations::calculer_seidel(&sys).unwrap(),
+        );
+        assert!((sa.total.s1 - sb.total.s1).abs() < 1e-12);
     }
 
     #[test]

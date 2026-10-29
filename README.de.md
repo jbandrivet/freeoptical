@@ -9,7 +9,7 @@
 **Freie Software für sequentielles Optikdesign und Simulation unter Linux: grafische Oberfläche, Terminal-Oberfläche und MCP-Server.**
 
 Mit FreeOptical lässt sich jedes optische System (Objektiv, Refraktor, Spiegelteleskop, Prüfaufbau…) Fläche für Fläche entwerfen, analysieren und optimieren. Es ist in **Rust** geschrieben (`egui`, `ratatui`, `nalgebra`, `rmcp`) und vereint:
-1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, gekippte und dezentrierte Flächen (gefaltete Systeme), zentrale Obstruktionen, Beugungsgitter, echte Gläser (Sellmeier-Formeln, Zemax-Kataloge `.agf`: Schott, Ohara, CDGM…), polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF, Strahlfächer, Bildfeldwölbung, Verzeichnung, Seidel-Koeffizienten sowie Optimierung nach Damped Least Squares über alle Felder und Farben; Spiegelprüfung mit dem Bath-Interferometer (Simulation, Auswertung, Analyse von Interferogramm-Fotos).
+1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, gekippte und dezentrierte Flächen, Koordinatenbrüche für gefaltete Systeme, Solves und Übernahmen (automatischer Fokus, vorgegebene Blendenzahl, aplanatische Fläche, übernommene Werte), zentrale Obstruktionen, Beugungsgitter, echte Gläser (Sellmeier-Formeln, Zemax-Kataloge `.agf`: Schott, Ohara, CDGM…), polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF, Strahlfächer, Bildfeldwölbung, Verzeichnung, Seidel-Koeffizienten, eingeschlossene Energie, chromatische Fokusverschiebung und Farbquerfehler, Strahlen-Footprints und nötige Halbdurchmesser, Import von Zemax-Dateien `.zmx` sowie Optimierung nach Damped Least Squares über alle Felder und Farben; Spiegelprüfung mit dem Bath-Interferometer (Simulation, Auswertung, Analyse von Interferogramm-Fotos).
 2. **Eine grafische Oberfläche und eine Terminal-Oberfläche (`--tui`) auf Deutsch, Englisch oder Französisch**: Linsendaten-Editor (LDE), 2D-Schnitt mit Strahlverfolgung, drehbare 3D-Ansicht, Spotdiagramm, LSA, Glaskatalog, Wellenfront, PSF und MTF. Man beginnt mit einem leeren System (`Datei` → `Neues leeres System`) oder mit einem der mitgelieferten Beispiele.
 3. **Einen eingebauten Model-Context-Protocol-Server (MCP)**, mit dem ein KI-Agent optische Systeme entwerfen, simulieren und optimieren kann.
 
@@ -35,6 +35,7 @@ freeoptical
 # Oder eine JSON-Systemdatei laden:
 freeoptical --fichier systeme_optique.json
 # Oder eine TDESIGN- / LENSDES- / RAYTRACE-Datei importieren:
+freeoptical --fichier objektiv.zmx
 freeoptical --fichier RITCHRET.TDS
 # Sprache der Oberfläche wählen:
 freeoptical --langue de
@@ -53,12 +54,13 @@ freeoptical --langue de
 - **`F7` / `7`**: Ansicht 7 — Beugungs-Punktbildfunktion (PSF)
 - **`F8` / `8`**: Ansicht 8 — tangentiale und sagittale MTF aller Felder
 - **`9`**: Strahlfächer (Queraberrationen); **`0`**: Bildfeldwölbung und Verzeichnung; Seidel-Koeffizienten über das Menü `Analyse`
+- **`Umschalt+F1`**: eingeschlossene Energie; **`Umschalt+F2`**: chromatische Fokusverschiebung und Farbquerfehler; **`Umschalt+F3`**: Strahlen-Footprint (`[` / `]`: vorige / nächste Fläche) — auch `F13` bis `F15` und über das Menü `Analyse`
 - **`B`**: Bath-Interferometer für den Spiegel des Systems (`X`/`x`, `Y`/`y`: Kippung, `D`/`d`: Defokus, `F`: gerade Streifen, `E`/`e`: Abstand, `K`/`k` und `V`/`v`: reale und Ziel-Konik, `A`: Astigmatismus, `Esc`: schließen)
 - **`C`** / **`W`**: nächstes Feld / nächste Wellenlänge für die Analyseansichten
 - **`I` / `Einfg`**: Fläche vor der ausgewählten Zeile einfügen
 - **`A`**: Fläche vor der Bildebene hinzufügen
 - **`Entf` / `X`**: ausgewählte Fläche löschen
-- **`T`**: Flächentyp wechseln (`PLAN` → `SPHÄRISCH` → `KONISCH` → `ASPHÄRISCH`)
+- **`T`**: Flächentyp wechseln (`PLAN` → `SPHÄRISCH` → `KONISCH` → `ASPHÄRISCH` → `COORDBRK`); ein durch einen Solve berechneter Wert ist mit `S` markiert
 - **`S`**: ausgewählte Fläche als Aperturblende setzen (`STOP`)
 - **`O`**: System mit **Damped Least Squares (DLS)** optimieren
 - **`P`**: automatische paraxiale Fokussierung (setzt die Schnittweite auf die `BFL`)
@@ -73,6 +75,8 @@ Die Schaltfläche **`Update`** (unten rechts oder Menü `Werkzeuge`) sucht die n
 Die Asphärenkoeffizienten A4, A6, A8, A10 der ausgewählten Fläche werden in der Zeile über der LDE-Tabelle bearbeitet (Ziehen: 0,1 µm Pfeilhöhe am Rand pro Pixel; Klicken: direkte Eingabe, z. B. `2.1e-7`); das Ändern eines Koeffizienten schaltet die Fläche auf den Typ `ASPHÄRISCH`.
 
 #### Grafisches Fenster: Ansichten und Einstellungen
+- Reiter **Umschalt+F1** bis **Umschalt+F3**: **eingeschlossene Energie** (geometrisch, Beugung und Airy-Scheibchen; Radien für 50 und 80 %), **Farbfehler** (paraxiale Fokusverschiebung über die Wellenlänge, verglichen mit der Schärfentiefe ±2λN², und Farbquerfehler über das Feld, verglichen mit dem Airy-Radius), **Footprint** der Bündel aller Felder auf der gewählten Fläche, mit dem nötigen Halbdurchmesser und der Schaltfläche **Alle Halbdurchmesser anpassen**.
+- Zeile **Solves** der ausgewählten Fläche: Auswahllisten für Radius, Dicke und Konik; der berechnete Wert erscheint orange mit `S` in der Tabelle.
 - Reiter **F1** bis **F11** unter dem Editor: 2D-Schnitt, 3D-Ansicht, Spot, LSA, Gläser, Wellenfront, PSF, MTF, **Strahlfächer** (Queraberrationen und optische Wegdifferenz im tangentialen und sagittalen Schnitt), **Bildfeldwölbung und Verzeichnung**, **Seidel-Koeffizienten** je Fläche.
 - Unter den Asphärenkoeffizienten stellt die Zeile der ausgewählten Fläche ihre **Dezentrierung** (X, Y), ihre **Kippung** (um X, dann um Y, in Grad, um den Scheitel), den Radius ihrer **zentralen Obstruktion** und ein **Beugungsgitter** (Linien pro mm, Ordnung) ein.
 - Die Schaltfläche **DLS optimieren** öffnet die Gütefunktion: Variablen (Radien, Linsendicken, Luftabstände, Schnittweite, Kegelschnitte, Asphären A4/A6), Kriterium (RMS-Spot oder RMS-Wellenfront über alle Felder und Wellenlängen), Zielbrennweite und Nebenbedingungen (Rand- und Mittendicken, Baulänge, Verzeichnung).
@@ -81,7 +85,8 @@ Die Asphärenkoeffizienten A4, A6, A8, A10 der ausgewählten Fläche werden in d
 Die eingebauten Gläser (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, Quarzglas, Flussspat CaF2) folgen ihren Sellmeier-Formeln; die alten Namen (BK7, SF11…) bleiben gültig. Zemax-Kataloge **`.agf`** (Schott, Ohara, CDGM, Sumita…, ANSI oder UTF-16) werden über das Menü `Datei`, per Drag-and-drop, mit `--catalogue datei.agf` oder mit dem MCP-Werkzeug `importer_catalogue_agf` importiert; sie werden in `~/.config/freeoptical/verres` aufbewahrt und bei jedem Start geladen. Die Syntax `nd:Vd` bleibt für ein Modellglas verfügbar.
 
 #### Gekippte Flächen, Obstruktionen und Gitter
-- Jede Fläche wird an der durch die Dicken gegebenen axialen Position platziert, dann um ihren Scheitel dezentriert und gekippt; die Strahlverfolgung ist in 3D exakt (Newton mit 45°-Fangspiegel, Schiefspiegler, Spektrograph…). Die paraxialen Rechnungen (Brennweite, Pupillen, Seidel) ignorieren Kippungen und Gitter.
+- Jede Fläche wird an der durch die Dicken entlang der aktuellen Achse gegebenen Position platziert, dann um ihren Scheitel dezentriert und gekippt (nur sie selbst); die Strahlverfolgung ist in 3D exakt. Die paraxialen Rechnungen (Brennweite, Pupillen, Seidel) folgen der entfalteten Achse und ignorieren Kippungen und Gitter.
+- **Koordinatenbruch** (Typ `COORDBRK`, wie in Zemax): fiktive Fläche, die das Koordinatensystem **aller folgenden Flächen** dezentriert (X, Y) und dann kippt (um X, die neue Y-, die neue Z-Achse); ihre Dicke zählt entlang der neuen Achse. Das Kästchen „Kippung vor Dezentrierung“ ist die Zemax-Reihenfolge 1 (Drehungen Z, Y, X, dann Dezentrierung): mit Gegenwerten hebt sie einen vorherigen Bruch genau auf. Ein Newton wird wie in Zemax geschrieben: Hauptspiegel (negative Dicke), 45°-Bruch, Planspiegel, 45°-Bruch, Schnittweite, Bildebene — die ohne Justage senkrecht zum Bündel steht.
 - Eine zentrale Obstruktion hält die Strahlen auf, die näher als ihr Radius an der Flächenachse vorbeigehen; Spot, Wellenfront, PSF und MTF berücksichtigen sie (der Referenz-Hauptstrahl wird ohne Obstruktion verfolgt).
 - Beugungsgitter: vektorielle Gittergleichung, Linien parallel zur lokalen X-Achse der Fläche, eine positive Ordnung lenkt das Licht nach lokal +Y ab; in Reflexion auf einem Spiegel, sonst in Transmission.
 
@@ -104,6 +109,18 @@ Die Ansichten `F6`, `F7` und `F8` (grafisches Fenster und TUI) gelten für das g
 - **Fotoauswertung** (PNG, JPEG, BMP, TIFF, auch per Ziehen auf das Fenster): die Spiegelscheibe wird automatisch gefunden (von Hand oder mit der Maus einstellbar), die Wellenfront mit der Methode von Takeda gewonnen (FFT, Gerchberg-Extrapolation, qualitätsgeführte Phasenentfaltung, lokale Verfeinerung und globale Anpassung des Bildmodells mit 37 Zernike-Termen) und wie oben ausgewertet. Nötig sind etwa zehn bis zwanzig Kippstreifen, Fokus für möglichst gerade Streifen eingestellt. Ein einzelnes Foto unterscheidet Buckel und Mulde nicht: das Vorzeichen wird automatisch gewählt (am nächsten an der Ziel-Konik) oder vorgegeben.
 - Durch Tests geprüft: Kugel ohne Abstand = Nullstreifen, exakte Streifenjustierung, Bath-Astigmatismus und sphärische Aberration der Parabel gemäß den Formeln, Konik und Fehler wiedergefunden; auf simulierten Fotos (Rauschen, gaußsche Ausleuchtung, zentrale Obstruktion) Konik auf ±0,005 und RMS auf ±0,003 λ genau, Scheibe auf besser als ein Pixel gefunden.
 - Das Beispiel `Datei` → `Bath-Interferometer laden` ist der entsprechende sequentielle Aufbau: ideale Bath-Linse (ihre Aberrationen heben sich im echten Aufbau auf) und der Spiegel als Pupille; seine Wellenfront (F6) zeigt die Abweichung des Spiegels von der Kugel.
+
+#### Solves und Übernahmen (Pickups)
+Automatische Berechnungen, vor jeder Analyse und bei jedem Optimierungsschritt neu ausgeführt (ein berechneter Parameter kann keine Variable sein), Fläche für Fläche, der Radius vor der Dicke:
+- **Dicke**: *Randstrahlhöhe* (der Randstrahl erreicht die Höhe `h` auf der nächsten Fläche; `h = 0` = Fokus; `zone` ≠ 0: realer Strahl bei diesem Pupillenanteil, 0,7071 für den besten Fokus bei sphärischer Aberration), *Hauptstrahlhöhe* (`h = 0`: nächste Fläche in einer Pupille).
+- **Radius**: vorgegebener *Rand-* oder *Hauptstrahlwinkel* nach der Fläche, *Blendenzahl* (die letzte Krümmung legt F/# fest), *aplanatisch* (weder sphärische Aberration noch Koma für den Randstrahl).
+- **Übernahme** (Radius, Dicke oder Konik): Wert einer anderen Fläche × Faktor + Versatz (symmetrische Linse: R2 = −1 × R1).
+- Ein unmöglicher Solve (paralleler Strahl, fehlende Fläche…) wird gemeldet und der vorige Wert behalten.
+
+#### Import von Zemax-Dateien `.zmx`
+Sequentielle OpticStudio-Linsendateien (UTF-16 oder ASCII): `Datei` → `Importieren`, Ziehen und Ablegen, Option `--fichier` oder MCP-Werkzeug `importer_zemax`.
+- Übernommen werden: Flächen `STANDARD`, `EVENASPH` (r⁴ bis r¹⁰), `COORDBRK`, `PARAXIAL`, `DGRATING`, Krümmungen, Dicken, Koniken, Gläser (über ihren Namen, wenn bekannt — eingebaute oder importierte `.agf`-Kataloge —, sonst über ihr nd/Vd-Modell), `MIRROR`, Halbdurchmesser (berechnet, wenn null), `CLAP` und `OBSC`, Blende, Einheiten (mm, cm, m, Zoll), Pupille (`ENPD`, `FNUM`, `OBNA`, `FLOA`), Felder als Winkel, Objekt- oder Bildhöhen (umgerechnet), Wellenlängen und Hauptwellenlänge.
+- Zemax-Solves werden mit ihren aktuellen Werten fest übernommen; andere Flächentypen werden als Standardflächen importiert, und alles nicht Übernommene wird im Importbericht aufgeführt.
 
 #### Import von TDESIGN-, LENSDES- und RAYTRACE-Dateien
 FreeOptical liest die Designdateien der Programme aus dem Buch *Telescope Optics: Evaluation and Design* (H. G. J. Rutten und M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, Spiegel- und katadioptrische Teleskope), `.RLD` (LENSDES, Refraktorobjektive) und `.DES` (RAYTRACE). Menü `Datei` → `TDESIGN / LENSDES / RAYTRACE importieren`, Option `--fichier` oder MCP-Werkzeug `importer_teloptik`.
@@ -134,6 +151,10 @@ freeoptical --mcp
 - `obtenir_spot_diagram()`: liefert die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius und den Airy-Radius.
 - `optimiser_systeme(variables, cibles)`: startet die Optimierung nach Damped Least Squares (DLS).
 - `importer_teloptik(chemin)`: importiert eine `.TDS`-, `.RLD`- oder `.DES`-Datei (TDESIGN, LENSDES, RAYTRACE) als aktuelles System.
+- `importer_zemax(chemin)`: importiert eine sequentielle Zemax-Datei `.zmx` als aktuelles System.
+- `analyser_energie_encerclee(champ_index)`: eingeschlossene Energie geometrisch, durch Beugung und nach Airy, Radien für 50 und 80 %.
+- `analyser_chromatisme()`: chromatische Fokusverschiebung und Farbquerfehler.
+- `analyser_empreinte(index_surface, ajuster_demi_diametres, points)`: Strahlen-Footprint auf einer Fläche und nötige Halbdurchmesser (auf Wunsch übernommen).
 - `analyser_front_onde(champ_index, longueur_onde_nm)`: Wellenfront eines Feldes: Spitze-Tal, RMS, Strehl (Maréchal und PSF), 37 Zernike-Koeffizienten.
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangentiale und sagittale MTF, Beugungsgrenze und Strehl der PSF.
 - `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel-Koeffizienten je Fläche, Bildfeldwölbung und Verzeichnung, Strahlfächer.
@@ -142,7 +163,7 @@ freeoptical --mcp
 - `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: Positionen, Dispersion, Spot, Spaltbild und Auflösung eines Spektrographen.
 - `simuler_bath(parametres, chemin_png)`: Interferogramm eines Spiegels im Krümmungsmittelpunkt und seine Auswertung (gemessene Konik, PV/RMS, Strehl, Zernike), PNG optional.
 - `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)`: Auswertung des Fotos eines Bath-Interferogramms.
-- `modifier_surface` akzeptiert auch `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` und `reseau_ordre`; `optimiser_systeme` akzeptiert die Variablen `a4` bis `a10` und die Ziele `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
+- `modifier_surface` akzeptiert auch `solve_rayon`, `solve_epaisseur`, `solve_conique` (z. B. `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}`, `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"Reprise","surface":1,"facteur":-1,"decalage":0}`), `retirer_solves`, `inclinaison_z_deg`, `inclinaison_avant_decentrement` (Koordinatenbrüche `COORDBRK`), `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` und `reseau_ordre`; `optimiser_systeme` akzeptiert die Variablen `a4` bis `a10` und die Ziele `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---
 

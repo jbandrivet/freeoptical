@@ -9,7 +9,7 @@
 **Free sequential optical design and simulation software for Linux: graphical interface, terminal interface and MCP server.**
 
 FreeOptical lets you design any optical system (objective, refractor, mirror telescope, test setup…) surface by surface, then analyse and optimize it. It is written in **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) and combines:
-1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces (folded systems), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, and Damped Least Squares optimization over all fields and colours; mirror testing with the Bath interferometer (simulation, reduction, analysis of interferogram photos).
+1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces, coordinate breaks for folded systems, solves and pickups (automatic focus, imposed F-number, aplanatic surface, copied values), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, encircled energy, chromatic focal shift and lateral colour, beam footprints and required semi-diameters, import of Zemax `.zmx` files, and Damped Least Squares optimization over all fields and colours; mirror testing with the Bath interferometer (simulation, reduction, analysis of interferogram photos).
 2. **A graphical interface and a terminal interface (`--tui`) in English, French or German**: Lens Data Editor (LDE), 2D cross section with ray trace, rotatable 3D view, spot diagram, LSA, glass catalogue, wavefront, PSF and MTF. Start from an empty system (`File` → `New empty system`) or from one of the bundled examples.
 3. **A built-in Model Context Protocol (MCP) server** letting an AI agent design, simulate and optimize optical systems.
 
@@ -35,6 +35,7 @@ freeoptical
 # Or load a JSON system file:
 freeoptical --fichier systeme_optique.json
 # Or import a TDESIGN / LENSDES / RAYTRACE file:
+freeoptical --fichier lens.zmx
 freeoptical --fichier RITCHRET.TDS
 # Choose the interface language:
 freeoptical --langue en
@@ -53,12 +54,13 @@ freeoptical --langue en
 - **`F7` / `7`**: view 7 — diffraction point spread function (PSF)
 - **`F8` / `8`**: view 8 — tangential and sagittal MTF of all fields
 - **`9`**: ray fans (transverse aberrations); **`0`**: field curvature and distortion; Seidel coefficients from the `Analysis` menu
+- **`Shift+F1`**: encircled energy; **`Shift+F2`**: chromatic focal shift and lateral colour; **`Shift+F3`**: beam footprint (`[` / `]`: previous / next surface) — also `F13` to `F15`, and from the `Analysis` menu
 - **`B`**: Bath interferometer for the system's mirror (`X`/`x`, `Y`/`y`: tilt, `D`/`d`: defocus, `F`: straight fringes, `E`/`e`: separation, `K`/`k` and `V`/`v`: actual and target conics, `A`: astigmatism, `Esc`: close)
 - **`C`** / **`W`**: next field / next wavelength for the analysis views
 - **`I` / `Ins`**: insert a surface before the selected row
 - **`A`**: add a surface before the image plane
 - **`Del` / `X`**: delete the selected surface
-- **`T`**: cycle the surface type (`FLAT` → `SPHERICAL` → `CONIC` → `ASPHERIC`)
+- **`T`**: cycle the surface type (`FLAT` → `SPHERICAL` → `CONIC` → `ASPHERIC` → `COORDBRK`); a value computed by a solve is followed by `S`
 - **`S`**: set the selected surface as aperture stop (`STOP`)
 - **`O`**: optimize the system with **Damped Least Squares (DLS)**
 - **`P`**: automatic paraxial focus (sets the back focus to the `BFL`)
@@ -73,6 +75,8 @@ The **`Update`** button (bottom right, or `Tools` menu) looks for the latest ver
 The A4, A6, A8, A10 aspheric coefficients of the selected surface are edited on the line above the LDE table (drag: 0.1 µm of edge sag per pixel; click: type a value, e.g. `2.1e-7`); changing a coefficient switches the surface to the `ASPHERIC` type.
 
 #### Graphical window: views and settings
+- Tabs **Shift+F1** to **Shift+F3**: **encircled energy** (geometric, diffraction and Airy pattern; 50% and 80% radii), **chromatic** (paraxial focus shift versus wavelength, compared with the ±2λN² depth of focus, and lateral colour across the field, compared with the Airy radius), **footprint** of the beams of all fields on the chosen surface, with the required semi-diameter and the **Fit all semi-diameters** button.
+- **Solves** row of the selected surface: drop-down lists for radius, thickness and conic; the computed value is shown in orange followed by `S` in the table.
 - Tabs **F1** to **F11** below the editor: 2D section, 3D view, spot, LSA, glasses, wavefront, PSF, MTF, **ray fans** (transverse aberrations and optical path difference along the tangential and sagittal sections), **field curvature and distortion**, **Seidel coefficients** per surface.
 - Below the aspheric coefficients, the line of the selected surface sets its **decenter** (X, Y), its **tilt** (about X then Y, in degrees, about the vertex), its **central obstruction** radius and a **diffraction grating** (lines per mm, order).
 - The **Optimize DLS** button opens the merit function: variables (radii, lens thicknesses, air spaces, back focus, conics, aspherics A4/A6), criterion (RMS spot or RMS wavefront over all fields and wavelengths), target focal length and constraints (edge and centre thicknesses, total length, distortion).
@@ -81,7 +85,8 @@ The A4, A6, A8, A10 aspheric coefficients of the selected surface are edited on 
 The built-in glasses (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, fused silica, CaF2 fluorite) follow their Sellmeier formulas; their old names (BK7, SF11…) are still accepted. Zemax **`.agf`** catalogues (Schott, Ohara, CDGM, Sumita…, ANSI or UTF-16) are imported from the `File` menu, by drag and drop, with `--catalogue file.agf` or with the `importer_catalogue_agf` MCP tool; they are kept in `~/.config/freeoptical/verres` and reloaded at every start. The `nd:Vd` syntax is still available for a model glass.
 
 #### Tilted surfaces, obstructions and gratings
-- Each surface is placed at the axial position given by the thicknesses, then decentered and tilted about its vertex; the ray trace is exact in 3D (Newtonian folded by a 45° flat, Schiefspiegler, spectrograph…). Paraxial calculations (focal length, pupils, Seidel) ignore tilts and gratings.
+- Each surface is placed at the position given by the thicknesses along the current axis, then decentered and tilted about its vertex (for itself only); the ray trace is exact in 3D. Paraxial calculations (focal length, pupils, Seidel) follow the unfolded axis and ignore tilts and gratings.
+- **Coordinate break** (type `COORDBRK`, as in Zemax): a dummy surface that decenters (X, Y) then tilts (about X, the new Y, the new Z) the frame of **all following surfaces**; its thickness is measured along the new axis. The “tilt before decenter” box is Zemax order 1 (rotations Z, Y, X then decenter): with opposite values it exactly undoes a previous break. A Newtonian is written as in Zemax: primary (negative thickness), 45° break, flat mirror, 45° break, back focus, image plane — which ends up perpendicular to the beam without any adjustment.
 - A central obstruction stops the rays passing closer than its radius to the surface axis; spot, wavefront, PSF and MTF take it into account (the reference chief ray is traced without obstruction).
 - Diffraction grating: vector grating equation, lines parallel to the local X axis of the surface, a positive order deviates light towards local +Y; in reflection on a mirror, in transmission otherwise.
 
@@ -104,6 +109,18 @@ Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field a
 - **Photo analysis** (PNG, JPEG, BMP, TIFF, which can be dropped onto the window): the mirror disc is found automatically (adjustable by hand or with the mouse), the wavefront is extracted with Takeda's method (FFT, Gerchberg extrapolation, quality-guided unwrapping, local refinement then global fit of the image model on 37 Zernike terms) and reduced as above. About ten to twenty tilt fringes are needed, with focus adjusted for fringes as straight as possible. A single photo cannot tell a bump from a hollow: the sign is chosen automatically (closest to the target conic) or forced.
 - Checked by the tests: sphere without separation = null fringe, exact fringe adjustments, Bath astigmatism and paraboloid spherical aberration matching the formulas, conic and errors recovered; on simulated photos (noise, Gaussian illumination, central obstruction), conic recovered within ±0.005 and RMS within ±0.003 λ, disc located to better than one pixel.
 - The example `File` → `Load Bath Interferometer` is the matching sequential set-up: ideal Bath lens (its aberrations cancel in the real set-up) and mirror as the pupil; its wavefront (F6) shows the mirror's departure from the sphere.
+
+#### Solves and pickups
+Automatic calculations redone before every analysis and at every optimizer step (a computed parameter cannot be a variable), surface by surface, radius before thickness:
+- **Thickness**: *marginal ray height* (the marginal ray reaches height `h` on the next surface; `h = 0` = focus; `zone` ≠ 0: real ray at that pupil fraction, 0.7071 for best focus with spherical aberration), *chief ray height* (`h = 0`: next surface in a pupil).
+- **Radius**: imposed *marginal* or *chief ray angle* after the surface, *F-number* (the last curvature sets the F/#), *aplanatic* (no spherical aberration nor coma for the marginal ray).
+- **Pickup** (radius, thickness or conic): another surface's value × scale + offset (symmetric lens: R2 = −1 × R1).
+- An impossible solve (parallel ray, missing surface…) is reported and the previous value kept.
+
+#### Importing Zemax `.zmx` files
+Sequential OpticStudio lens files (UTF-16 or ASCII): `File` → `Import`, drag and drop, `--fichier` option or MCP tool `importer_zemax`.
+- Imported: `STANDARD`, `EVENASPH` (r⁴ to r¹⁰), `COORDBRK`, `PARAXIAL`, `DGRATING` surfaces, curvatures, thicknesses, conics, glasses (by name when known — built-in or imported `.agf` catalogues — otherwise by their nd/Vd model), `MIRROR`, semi-diameters (computed when zero), `CLAP` and `OBSC`, stop, units (mm, cm, m, inches), pupil (`ENPD`, `FNUM`, `OBNA`, `FLOA`), fields as angles, object heights or image heights (converted), wavelengths and primary wavelength.
+- Zemax solves are imported with their current values, frozen; other surface types are imported as standard surfaces and everything not imported is listed in the import report.
 
 #### Importing TDESIGN, LENSDES and RAYTRACE files
 FreeOptical reads the design files of the programs from the book *Telescope Optics: Evaluation and Design* (H. G. J. Rutten and M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, mirror and catadioptric telescopes), `.RLD` (LENSDES, refractor objectives) and `.DES` (RAYTRACE). `File` menu → `Import TDESIGN / LENSDES / RAYTRACE`, `--fichier` option, or `importer_teloptik` MCP tool.
@@ -134,6 +151,10 @@ freeoptical --mcp
 - `obtenir_spot_diagram()`: returns the image plane hits, the centroid, the RMS radius and the Airy radius.
 - `optimiser_systeme(variables, cibles)`: runs the Damped Least Squares (DLS) optimizer.
 - `importer_teloptik(chemin)`: imports a `.TDS`, `.RLD` or `.DES` file (TDESIGN, LENSDES, RAYTRACE) as the current system.
+- `importer_zemax(chemin)`: imports a sequential Zemax `.zmx` file as the current system.
+- `analyser_energie_encerclee(champ_index)`: geometric, diffraction and Airy encircled energy, 50% and 80% radii.
+- `analyser_chromatisme()`: chromatic focal shift and lateral colour.
+- `analyser_empreinte(index_surface, ajuster_demi_diametres, points)`: beam footprint on a surface and required semi-diameters (applied on request).
 - `analyser_front_onde(champ_index, longueur_onde_nm)`: wavefront of a field: peak-to-valley, RMS, Strehl (Maréchal and PSF), 37 Zernike coefficients.
 - `calculer_ftm(champ_index, longueur_onde_nm, nb_frequences)`: tangential and sagittal MTF, diffraction limit and PSF Strehl.
 - `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel coefficients per surface, field curvature and distortion, ray fans.
@@ -142,7 +163,7 @@ freeoptical --mcp
 - `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: positions, dispersion, spot, slit image and resolution of a spectrograph.
 - `simuler_bath(parametres, chemin_png)`: interferogram of a mirror at its centre of curvature and its reduction (measured conic, PV/RMS, Strehl, Zernike), optional PNG.
 - `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)`: analysis and reduction of a Bath interferogram photo.
-- `modifier_surface` also accepts `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` and `reseau_ordre`; `optimiser_systeme` accepts the variables `a4` to `a10` and the targets `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
+- `modifier_surface` also accepts `solve_rayon`, `solve_epaisseur`, `solve_conique` (e.g. `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}`, `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"Reprise","surface":1,"facteur":-1,"decalage":0}`), `retirer_solves`, `inclinaison_z_deg`, `inclinaison_avant_decentrement` (`COORDBRK` coordinate breaks), `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` and `reseau_ordre`; `optimiser_systeme` accepts the variables `a4` to `a10` and the targets `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---
 

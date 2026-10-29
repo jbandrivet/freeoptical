@@ -40,6 +40,12 @@ pub enum ActiveView {
     Seidel,
     /// Spectrographe : position des longueurs d'onde, dispersion, résolution
     Spectre,
+    /// Énergie encerclée géométrique et par diffraction
+    EnergieEncerclee,
+    /// Décalage focal chromatique et couleur latérale
+    Chromatique,
+    /// Empreinte des faisceaux sur une surface (footprint)
+    Empreinte,
 }
 
 impl ActiveView {
@@ -85,11 +91,26 @@ impl ActiveView {
                 "ANALYSIS: SPECTROGRAPH (DISPERSION, SLIT IMAGE, RESOLUTION)",
                 "ANALYSE: SPEKTROGRAPH (DISPERSION, SPALTBILD, AUFLÖSUNG)"
             ),
+            ActiveView::EnergieEncerclee => tr!(
+                "ANALYSE : ÉNERGIE ENCERCLÉE (GÉOMÉTRIQUE ET DIFFRACTION)",
+                "ANALYSIS: ENCIRCLED ENERGY (GEOMETRIC AND DIFFRACTION)",
+                "ANALYSE: EINGESCHLOSSENE ENERGIE (GEOMETRISCH UND BEUGUNG)"
+            ),
+            ActiveView::Chromatique => tr!(
+                "ANALYSE : DÉCALAGE FOCAL CHROMATIQUE ET COULEUR LATÉRALE",
+                "ANALYSIS: CHROMATIC FOCAL SHIFT AND LATERAL COLOUR",
+                "ANALYSE: CHROMATISCHE FOKUSVERSCHIEBUNG UND FARBQUERFEHLER"
+            ),
+            ActiveView::Empreinte => tr!(
+                "ANALYSE : EMPREINTE DES FAISCEAUX SUR UNE SURFACE (FOOTPRINT)",
+                "ANALYSIS: BEAM FOOTPRINT ON A SURFACE",
+                "ANALYSE: STRAHLENBÜNDEL-FOOTPRINT AUF EINER FLÄCHE"
+            ),
         }
     }
 
-    /// Toutes les vues, dans l'ordre des touches F1 à F8
-    pub const TOUTES: [ActiveView; 12] = [
+    /// Toutes les vues, dans l'ordre des touches F1 à F12 puis Maj+F1 à Maj+F3
+    pub const TOUTES: [ActiveView; 15] = [
         ActiveView::Coupe2D,
         ActiveView::Filaire3D,
         ActiveView::SpotDiagram,
@@ -102,7 +123,15 @@ impl ActiveView {
         ActiveView::CourbureChamp,
         ActiveView::Seidel,
         ActiveView::Spectre,
+        ActiveView::EnergieEncerclee,
+        ActiveView::Chromatique,
+        ActiveView::Empreinte,
     ];
+
+    /// Raccourci affiché sur l'onglet (« F7 », « ⇧F2 »…)
+    pub fn raccourci(index: usize) -> String {
+        if index < 12 { format!("F{}", index + 1) } else { format!("⇧F{}", index - 11) }
+    }
 
     /// Libellé court pour les onglets
     pub fn libelle_court(&self) -> &'static str {
@@ -119,6 +148,9 @@ impl ActiveView {
             ActiveView::CourbureChamp => tr!("Champ", "Field", "Bildfeld"),
             ActiveView::Seidel => tr!("Seidel", "Seidel", "Seidel"),
             ActiveView::Spectre => tr!("Spectro", "Spectro", "Spektro"),
+            ActiveView::EnergieEncerclee => tr!("Énergie", "Encircled", "Energie"),
+            ActiveView::Chromatique => tr!("Chromatisme", "Chromatic", "Farbfehler"),
+            ActiveView::Empreinte => tr!("Empreinte", "Footprint", "Footprint"),
         }
     }
 }
@@ -231,7 +263,10 @@ pub fn items_menu(menu_idx: usize) -> Vec<&'static str> {
             tr!("10. Courbure de champ & distorsion (0)", "10. Field curvature & distortion (0)", "10. Bildfeldwölbung & Verzeichnung (0)"),
             tr!("11. Coefficients de Seidel", "11. Seidel coefficients", "11. Seidel-Koeffizienten"),
             tr!("12. Spectrographe (dispersion, résolution)", "12. Spectrograph (dispersion, resolution)", "12. Spektrograph (Dispersion, Auflösung)"),
-            tr!("13. Interféromètre de Bath (B)", "13. Bath interferometer (B)", "13. Bath-Interferometer (B)"),
+            tr!("13. Énergie encerclée (Maj+F1)", "13. Encircled energy (Shift+F1)", "13. Eingeschlossene Energie (Umschalt+F1)"),
+            tr!("14. Décalage focal & couleur latérale (Maj+F2)", "14. Focal shift & lateral colour (Shift+F2)", "14. Fokusverschiebung & Farbquerfehler (Umschalt+F2)"),
+            tr!("15. Empreinte des faisceaux ([ ] surface) (Maj+F3)", "15. Beam footprint ([ ] surface) (Shift+F3)", "15. Strahlen-Footprint ([ ] Fläche) (Umschalt+F3)"),
+            tr!("16. Interféromètre de Bath (B)", "16. Bath interferometer (B)", "16. Bath-Interferometer (B)"),
         ],
         3 => vec![
             tr!(
@@ -278,7 +313,8 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn nouveau(systeme: OpticalSystem) -> Self {
+    pub fn nouveau(mut systeme: OpticalSystem) -> Self {
+        crate::core::solves::appliquer_solves(&mut systeme);
         let paraxial = calculer_paraxial(&systeme);
         let spot = calculer_spot_diagram(&systeme, (0.0, 0.0), 4);
         let lsa = calculer_aberration_spherique_longitudinale(&systeme, 14);
@@ -318,6 +354,10 @@ impl AppState {
 
     /// Recalcule immédiatement les données paraxiales, le Spot Diagram et l'aberration sphérique
     pub fn recalculer(&mut self) {
+        let alertes = crate::core::solves::appliquer_solves(&mut self.systeme);
+        if let Some(a) = alertes.first() {
+            self.statut_message = a.clone();
+        }
         self.paraxial = calculer_paraxial(&self.systeme);
         self.spot = calculer_spot_diagram(&self.systeme, (0.0, 0.0), 4);
         self.lsa = calculer_aberration_spherique_longitudinale(&self.systeme, 14);
@@ -424,7 +464,7 @@ impl AppState {
         };
     }
 
-    /// Fait défiler cycliquement le type de la surface active (Plane -> Sphérique -> Conique -> Asphérique)
+    /// Fait défiler cycliquement le type de la surface active (Plane -> Sphérique -> Conique -> Asphérique -> Rupture de repère)
     pub fn basculer_type_surface(&mut self) {
         if let Some(surf) = self.systeme.surfaces.get_mut(self.ligne_selectionnee) {
             surf.type_surface = match surf.type_surface {
@@ -436,7 +476,11 @@ impl AppState {
                 }
                 SurfaceType::Spherique => SurfaceType::Conique,
                 SurfaceType::Conique => SurfaceType::Aspherique,
-                SurfaceType::Aspherique | SurfaceType::Ideale => {
+                SurfaceType::Aspherique => {
+                    surf.rayon = f64::INFINITY;
+                    SurfaceType::CoupureRepere
+                }
+                SurfaceType::Ideale | SurfaceType::CoupureRepere => {
                     surf.rayon = f64::INFINITY;
                     SurfaceType::Plane
                 }
@@ -616,6 +660,15 @@ impl AppState {
             ActiveView::Spectre => {
                 self.ondes.spectre(&self.systeme);
             }
+            ActiveView::EnergieEncerclee => {
+                self.ondes.energie(&self.systeme);
+            }
+            ActiveView::Chromatique => {
+                self.ondes.chromatique(&self.systeme);
+            }
+            ActiveView::Empreinte => {
+                self.ondes.empreinte(&self.systeme);
+            }
             _ => {}
         }
     }
@@ -624,7 +677,7 @@ impl AppState {
     pub fn executer_action_menu(&mut self, menu_idx: usize, item_idx: usize) {
         self.menu_ouvert = None;
         // Choisir une autre vue ferme la vue Bath
-        if menu_idx == 2 && item_idx != 12 {
+        if menu_idx == 2 && item_idx != 15 {
             self.bath = None;
         }
         match (menu_idx, item_idx) {
@@ -696,7 +749,10 @@ impl AppState {
             (2, 9) => self.vue_active = ActiveView::CourbureChamp,
             (2, 10) => self.vue_active = ActiveView::Seidel,
             (2, 11) => self.vue_active = ActiveView::Spectre,
-            (2, 12) => {
+            (2, 12) => self.vue_active = ActiveView::EnergieEncerclee,
+            (2, 13) => self.vue_active = ActiveView::Chromatique,
+            (2, 14) => self.vue_active = ActiveView::Empreinte,
+            (2, 15) => {
                 if self.bath.is_none() {
                     self.basculer_bath();
                 }

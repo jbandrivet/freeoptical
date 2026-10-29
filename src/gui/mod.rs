@@ -3,10 +3,12 @@
 //! et contrôle interactif à la souris et au clavier.
 
 mod aberrations;
+mod analyses;
 mod bath;
 mod optimisation;
 mod systeme;
 mod ondes;
+mod solves;
 
 use crate::{
     i18n::{self, Langue},
@@ -19,12 +21,14 @@ use crate::{
         glass::{LAMBDA_D_NM, MediumKind},
         optimizer::{OptimizationTarget, OptimizationVariable, optimiser_systeme_dls},
         paraxial::{ParaxialData, calculer_paraxial},
+        solves::ParametreSolve,
         presets::{creer_interferometre_bath, creer_singlet_aspherique, creer_telescope_cassegrain},
         teloptik::{est_fichier_teloptik, importer_fichier_teloptik},
+        zemax::{est_fichier_zemax, importer_fichier_zemax},
         raytracer::{
             TracedRay, snell_descartes_3d, tracer_eventail_meridional, tracer_grille_hexapolaire,
         },
-        types::{OpticalSystem, Point3, Surface, SurfaceType, Vec3},
+        types::{OpticalSystem, Point3, Repere, Surface, SurfaceType, Vec3},
     },
     maj::{self, VersionDisponible},
     ui::app::ActiveView,
@@ -292,10 +296,13 @@ pub struct FreeOpticalGuiApp {
     pub bilan_import: Option<(bool, String, Vec<String>)>,
     /// Interféromètre de Bath (simulation, réduction, analyse de photos)
     pub bath: bath::EtatBath,
+    /// Avertissements des solves (calcul impossible, solve mal placé)
+    pub alertes_solves: Vec<String>,
 }
 
 impl FreeOpticalGuiApp {
-    pub fn nouveau(systeme: OpticalSystem) -> Self {
+    pub fn nouveau(mut systeme: OpticalSystem) -> Self {
+        let alertes_solves = crate::core::solves::appliquer_solves(&mut systeme);
         let paraxial = calculer_paraxial(&systeme);
         let spot = calculer_spot_diagram(&systeme, (0.0, 0.0), 4);
         let lsa = calculer_aberration_spherique_longitudinale(&systeme, 16);
@@ -334,10 +341,12 @@ impl FreeOpticalGuiApp {
                 .unwrap_or_default(),
             bilan_import: None,
             bath: bath::EtatBath::default(),
+            alertes_solves,
         }
     }
 
     pub fn recalculer(&mut self) {
+        self.alertes_solves = crate::core::solves::appliquer_solves(&mut self.systeme);
         self.paraxial = calculer_paraxial(&self.systeme);
         self.spot = calculer_spot_diagram(&self.systeme, (0.0, 0.0), 4);
         self.lsa = calculer_aberration_spherique_longitudinale(&self.systeme, 16);
@@ -376,6 +385,36 @@ impl FreeOpticalGuiApp {
             self.statut_message = msg.clone();
             self.bilan_import = Some((reussi, msg, Vec::new()));
             self.recalculer();
+            return;
+        }
+        if est_fichier_zemax(chemin) {
+            match importer_fichier_zemax(chemin) {
+                Ok(import) => {
+                    let msg = trf!(
+                        "'{}' importé depuis {} ({} avertissement(s)).", "'{}' imported from {} ({} warning(s)).", "'{}' importiert aus {} ({} Warnung(en)).",
+                        import.systeme.nom,
+                        chemin.display(),
+                        import.avertissements.len()
+                    );
+                    self.charger_systeme(import.systeme, msg.clone());
+                    let mut lignes = import.avertissements;
+                    lignes.insert(
+                        0,
+                        trf!(
+                            "Focale paraxiale : {:.3} mm — F/{:.2}. Les solves de Zemax sont repris comme valeurs figées.",
+                            "Paraxial focal length: {:.3} mm — F/{:.2}. Zemax solves are imported as frozen values.",
+                            "Paraxiale Brennweite: {:.3} mm — F/{:.2}. Zemax-Solves werden als feste Werte übernommen.",
+                            self.paraxial.focale_effl_mm,
+                            self.paraxial.nombre_ouverture_fnum
+                        ),
+                    );
+                    self.bilan_import = Some((true, msg, lignes));
+                }
+                Err(e) => {
+                    self.statut_message = trf!("ÉCHEC de l'import : {e}", "Import FAILED: {e}", "Import FEHLGESCHLAGEN: {e}");
+                    self.bilan_import = Some((false, self.statut_message.clone(), Vec::new()));
+                }
+            }
             return;
         }
         if est_fichier_teloptik(chemin) {
@@ -444,15 +483,15 @@ impl FreeOpticalGuiApp {
         .show(ctx, |ui| {
             ui.label(
                 tr!(
-                    "Systèmes .TDS, .RLD et .DES des programmes du livre « Telescope Optics » \
-                     (Rutten et van Venrooij), ou catalogues de verres Zemax .agf (Schott, Ohara, \
-                     CDGM…). On peut aussi glisser un fichier sur la fenêtre.",
-                    ".TDS, .RLD and .DES systems from the programs of the book \"Telescope Optics\" \
-                     (Rutten and van Venrooij), or Zemax .agf glass catalogues (Schott, Ohara, \
-                     CDGM…). You can also drop a file onto the window.",
-                    ".TDS-, .RLD- und .DES-Systeme der Programme aus dem Buch „Telescope Optics“ \
-                     (Rutten und van Venrooij) oder Zemax-Glaskataloge .agf (Schott, Ohara, \
-                     CDGM…). Eine Datei kann auch auf das Fenster gezogen werden."
+                    "Systèmes Zemax séquentiels .zmx, systèmes .TDS, .RLD et .DES des programmes \
+                     du livre « Telescope Optics » (Rutten et van Venrooij), ou catalogues de verres \
+                     Zemax .agf (Schott, Ohara, CDGM…). On peut aussi glisser un fichier sur la fenêtre.",
+                    "Sequential Zemax .zmx systems, .TDS, .RLD and .DES systems from the programs of \
+                     the book \"Telescope Optics\" (Rutten and van Venrooij), or Zemax .agf glass \
+                     catalogues (Schott, Ohara, CDGM…). You can also drop a file onto the window.",
+                    "Sequentielle Zemax-Systeme .zmx, .TDS-, .RLD- und .DES-Systeme der Programme aus \
+                     dem Buch „Telescope Optics“ (Rutten und van Venrooij) oder Zemax-Glaskataloge .agf \
+                     (Schott, Ohara, CDGM…). Eine Datei kann auch auf das Fenster gezogen werden."
                 ),
             );
             ui.add_space(4.0);
@@ -464,7 +503,7 @@ impl FreeOpticalGuiApp {
             let mut fichiers: Vec<PathBuf> = std::fs::read_dir(&dossier)
                 .map(|it| {
                     it.filter_map(|e| e.ok().map(|e| e.path()))
-                        .filter(|p| est_fichier_teloptik(p) || est_catalogue_agf(p))
+                        .filter(|p| est_fichier_teloptik(p) || est_fichier_zemax(p) || est_catalogue_agf(p))
                         .collect()
                 })
                 .unwrap_or_default();
@@ -749,7 +788,13 @@ impl eframe::App for FreeOpticalGuiApp {
         let ctx = ui.ctx().clone();
         // Raccourcis clavier globaux
         ctx.input(|i| {
-            if i.key_pressed(Key::F1) {
+            if i.modifiers.shift && i.key_pressed(Key::F1) {
+                self.vue_active = ActiveView::EnergieEncerclee;
+            } else if i.modifiers.shift && i.key_pressed(Key::F2) {
+                self.vue_active = ActiveView::Chromatique;
+            } else if i.modifiers.shift && i.key_pressed(Key::F3) {
+                self.vue_active = ActiveView::Empreinte;
+            } else if i.key_pressed(Key::F1) {
                 self.vue_active = ActiveView::Coupe2D;
             } else if i.key_pressed(Key::F2) {
                 self.vue_active = ActiveView::Filaire3D;
@@ -860,7 +905,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             ui.close();
                         }
                         if ui
-                            .button(tr!("6. Importer TDESIGN / LENSDES / RAYTRACE ou un catalogue de verres (.agf)…", "6. Import TDESIGN / LENSDES / RAYTRACE or a glass catalogue (.agf)…", "6. TDESIGN / LENSDES / RAYTRACE oder Glaskatalog (.agf) importieren…"))
+                            .button(tr!("6. Importer Zemax (.zmx), TDESIGN / LENSDES / RAYTRACE ou un catalogue de verres (.agf)…", "6. Import Zemax (.zmx), TDESIGN / LENSDES / RAYTRACE or a glass catalogue (.agf)…", "6. Zemax (.zmx), TDESIGN / LENSDES / RAYTRACE oder Glaskatalog (.agf) importieren…"))
                             .clicked()
                         {
                             self.bilan_import = None;
@@ -1161,12 +1206,12 @@ impl eframe::App for FreeOpticalGuiApp {
                     .inner_margin(Margin::symmetric(8, 6)),
             )
             .show(ui, |ui| {
-                // Onglets des vues (F1 à F8)
+                // Onglets des vues (F1 à F12, Maj+F1 à Maj+F3)
                 ui.horizontal_wrapped(|ui| {
                     for (k, vue) in ActiveView::TOUTES.into_iter().enumerate() {
                         let actif = self.vue_active == vue;
                         let btn = egui::Button::new(
-                            RichText::new(format!(" F{} {} ", k + 1, vue.libelle_court()))
+                            RichText::new(format!(" {} {} ", ActiveView::raccourci(k), vue.libelle_court()))
                                 .monospace()
                                 .strong()
                                 .color(if actif { COL_DOS_YELLOW } else { Color32::BLACK }),
@@ -1195,6 +1240,9 @@ impl eframe::App for FreeOpticalGuiApp {
                     ActiveView::CourbureChamp => self.dessiner_courbure_champ(ui),
                     ActiveView::Seidel => self.dessiner_seidel(ui),
                     ActiveView::Spectre => self.dessiner_spectre(ui),
+                    ActiveView::EnergieEncerclee => self.dessiner_energie(ui),
+                    ActiveView::Chromatique => self.dessiner_chromatique(ui),
+                    ActiveView::Empreinte => self.dessiner_empreinte(ui),
                 });
             });
 
@@ -1204,7 +1252,7 @@ impl eframe::App for FreeOpticalGuiApp {
         self.dessiner_fenetre_systeme(&ctx);
         self.dessiner_fenetre_bath(&ctx);
 
-        // Glisser-déposer d'un fichier système (.json, .TDS, .RLD, .DES) sur la fenêtre
+        // Glisser-déposer d'un fichier système (.json, .zmx, .TDS, .RLD, .DES) sur la fenêtre
         let depose = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| {
             let p = f.path();
             (!p.as_os_str().is_empty()).then(|| p.to_path_buf())
@@ -1213,7 +1261,7 @@ impl eframe::App for FreeOpticalGuiApp {
             self.bath.ouvrir_photo(chemin);
         } else if let Some(chemin) = depose {
             self.ouvrir_fichier(&chemin);
-            if est_fichier_teloptik(&chemin) || est_catalogue_agf(&chemin) {
+            if est_fichier_teloptik(&chemin) || est_fichier_zemax(&chemin) || est_catalogue_agf(&chemin) {
                 self.fenetre_import = true;
             }
         }
@@ -1349,6 +1397,9 @@ impl FreeOpticalGuiApp {
                     champ(ui, "Y", &mut surf.decentrement[1], 0.1, tr!("Décentrement du sommet en Y (mm)", "Vertex decenter in Y (mm)", "Dezentrierung des Scheitels in Y (mm)"));
                     champ(ui, tr!("Incl. X°", "Tilt X°", "Kipp. X°"), &mut surf.inclinaison_deg[0], 0.1, tr!("Rotation autour de X (degrés)", "Rotation about X (degrees)", "Drehung um X (Grad)"));
                     champ(ui, "Y°", &mut surf.inclinaison_deg[1], 0.1, tr!("Rotation autour de Y, après X (degrés)", "Rotation about Y, after X (degrees)", "Drehung um Y, nach X (Grad)"));
+                    if surf.est_coupure() {
+                        champ(ui, "Z°", &mut surf.inclinaison_z_deg, 0.1, tr!("Rotation autour du nouvel axe Z, après X et Y (degrés)", "Rotation about the new Z axis, after X and Y (degrees)", "Drehung um die neue Z-Achse, nach X und Y (Grad)"));
+                    }
                     champ(ui, tr!("Obstr. r", "Obstr. r", "Obstr. r"), &mut surf.rayon_obstruction, 0.1, tr!("Rayon de l'obstruction centrale (mm)", "Central obstruction radius (mm)", "Radius der zentralen Obstruktion (mm)"));
                     champ(ui, tr!("Réseau tr/mm", "Grating l/mm", "Gitter L/mm"), &mut surf.reseau_traits_mm, 1.0, tr!("Traits par mm (0 = pas de réseau), traits parallèles à X local", "Lines per mm (0 = no grating), lines parallel to local X", "Linien pro mm (0 = kein Gitter), Linien parallel zu lokalem X"));
                     if surf.type_surface == SurfaceType::Ideale {
@@ -1360,6 +1411,30 @@ impl FreeOpticalGuiApp {
                     }
                     surf.rayon_obstruction = surf.rayon_obstruction.max(0.0);
                 });
+                // Solves et reprises de la surface sélectionnée
+                let surf = &mut self.systeme.surfaces[idx_sel];
+                ui.horizontal_wrapped(|ui| {
+                    if surf.est_coupure() {
+                        if ui
+                            .checkbox(&mut surf.inclinaison_avant_decentrement, tr!("inclinaison avant décentrement", "tilt before decenter", "Kippung vor Dezentrierung"))
+                            .on_hover_text(tr!("Ordre 1 de Zemax (rotations Z, Y, X puis décentrement) : avec les valeurs opposées, défait une rupture précédente", "Zemax order 1 (rotations Z, Y, X then decenter): with opposite values, undoes a previous break", "Zemax-Reihenfolge 1 (Drehungen Z, Y, X, dann Dezentrierung): mit Gegenwerten wird ein vorheriger Bruch aufgehoben"))
+                            .changed()
+                        {
+                            modifie = true;
+                        }
+                    }
+                    ui.label(RichText::new(tr!("Solves :", "Solves:", "Solves:")).monospace().strong().color(COL_DOS_YELLOW));
+                    if !matches!(surf.type_surface, SurfaceType::Ideale | SurfaceType::CoupureRepere) || surf.solve_rayon.is_some() {
+                        modifie |= solves::editeur_solve(ui, "solve_rayon", tr!("R", "R", "R"), &mut surf.solve_rayon, ParametreSolve::Rayon, idx_sel + 1);
+                    }
+                    modifie |= solves::editeur_solve(ui, "solve_ep", tr!("Ép.", "Thk.", "Dicke"), &mut surf.solve_epaisseur, ParametreSolve::Epaisseur, idx_sel + 1);
+                    if matches!(surf.type_surface, SurfaceType::Conique | SurfaceType::Aspherique) || surf.solve_conique.is_some() {
+                        modifie |= solves::editeur_solve(ui, "solve_k", "k", &mut surf.solve_conique, ParametreSolve::Conique, idx_sel + 1);
+                    }
+                });
+                for a in &self.alertes_solves {
+                    ui.label(RichText::new(format!("⚠ {a}")).monospace().color(COL_DOS_ORANGE));
+                }
                 ui.add_space(4.0);
             }
 
@@ -1437,6 +1512,7 @@ impl FreeOpticalGuiApp {
                                             SurfaceType::Conique,
                                             SurfaceType::Aspherique,
                                             SurfaceType::Ideale,
+                                            SurfaceType::CoupureRepere,
                                         ] {
                                             if ui
                                                 .selectable_value(
@@ -1450,6 +1526,13 @@ impl FreeOpticalGuiApp {
                                                     surf.rayon = f64::INFINITY;
                                                     if surf.focale_ideale_mm == 0.0 {
                                                         surf.focale_ideale_mm = 100.0;
+                                                    }
+                                                } else if t == SurfaceType::CoupureRepere {
+                                                    surf.rayon = f64::INFINITY;
+                                                    surf.solve_rayon = None;
+                                                    surf.solve_conique = None;
+                                                    if surf.commentaire.is_empty() || surf.commentaire == tr!("Nouvelle Surface", "New Surface", "Neue Fläche") {
+                                                        surf.commentaire = tr!("Rupture de repère", "Coordinate break", "Koordinatenbruch").to_string();
                                                     }
                                                 } else if t == SurfaceType::Plane {
                                                     surf.rayon = f64::INFINITY;
@@ -1474,7 +1557,13 @@ impl FreeOpticalGuiApp {
                                 }
 
                                 // Rayon (mm)
-                                if surf.type_surface == SurfaceType::Plane
+                                let tirets = || RichText::new("    —    ").monospace().color(COL_DOS_GRAY);
+                                if surf.est_coupure() {
+                                    ui.label(tirets());
+                                } else if let Some(solve) = &surf.solve_rayon {
+                                    ui.label(RichText::new(if surf.rayon.is_finite() { format!("{:.4} S", surf.rayon) } else { "INF S".to_string() }).monospace().color(COL_DOS_ORANGE))
+                                        .on_hover_text(trf!("Calculé par le solve {}", "Computed by the solve {}", "Berechnet durch Solve {}", solve.libelle()));
+                                } else if surf.type_surface == SurfaceType::Plane
                                     || !surf.rayon.is_finite()
                                 {
                                     if ui
@@ -1506,7 +1595,10 @@ impl FreeOpticalGuiApp {
 
                                 // Épaisseur (mm) : négative après un miroir. La plage doit l'inclure,
                                 // car egui ramène la valeur affichée dans la plage (ce qui l'écraserait)
-                                if ui
+                                if let Some(solve) = &surf.solve_epaisseur {
+                                    ui.label(RichText::new(format!("{:.4} S", surf.epaisseur)).monospace().color(COL_DOS_ORANGE))
+                                        .on_hover_text(trf!("Calculée par le solve {}", "Computed by the solve {}", "Berechnet durch Solve {}", solve.libelle()));
+                                } else if ui
                                     .add(
                                         egui::DragValue::new(&mut surf.epaisseur)
                                             .speed(0.25)
@@ -1518,7 +1610,10 @@ impl FreeOpticalGuiApp {
                                     modifie = true;
                                 }
 
-                                // Sélecteur de Verre
+                                // Sélecteur de Verre (sans objet pour une rupture de repère)
+                                if surf.est_coupure() {
+                                    ui.label(tirets());
+                                } else {
                                 egui::ComboBox::from_id_salt(format!("verre_surf_{}", idx))
                                     .selected_text(RichText::new(&surf.verre).monospace())
                                     .width(80.0)
@@ -1536,6 +1631,7 @@ impl FreeOpticalGuiApp {
                                             }
                                         }
                                     });
+                                }
 
                                 // Demi-diamètre (mm)
                                 if ui
@@ -1551,7 +1647,12 @@ impl FreeOpticalGuiApp {
                                 }
 
                                 // Constante conique k
-                                if ui
+                                if surf.est_coupure() {
+                                    ui.label(tirets());
+                                } else if let Some(solve) = &surf.solve_conique {
+                                    ui.label(RichText::new(format!("{:.4} S", surf.conique)).monospace().color(COL_DOS_ORANGE))
+                                        .on_hover_text(trf!("Calculée par le solve {}", "Computed by the solve {}", "Berechnet durch Solve {}", solve.libelle()));
+                                } else if ui
                                     .add(
                                         egui::DragValue::new(&mut surf.conique)
                                             .speed(0.02)
@@ -1807,7 +1908,8 @@ impl FreeOpticalGuiApp {
 
         let sys = &self.systeme;
         let positions_z = sys.positions_z_sommets();
-        let (z_min_sys, z_max_sys) = sys.etendue_axiale();
+        let reperes = sys.reperes();
+        let [z_min_sys, z_max_sys, y_min_sys, y_max_sys] = sys.boite_englobante();
         let max_sd = sys
             .surfaces
             .iter()
@@ -1818,7 +1920,8 @@ impl FreeOpticalGuiApp {
         let z_min = z_min_sys - 18.0;
         let z_max = z_max_sys.max(z_min_sys + 20.0) + 12.0;
         let largeur_z = (z_max - z_min).max(10.0);
-        let hauteur_y = (max_sd * 3.4).max(10.0);
+        let hauteur_y = (max_sd * 3.4).max((y_max_sys - y_min_sys) * 1.25).max(10.0);
+        let y_milieu = 0.5 * (y_min_sys + y_max_sys);
 
         let echelle_x = (rect.width() as f64) / largeur_z;
         let echelle_y = (rect.height() as f64) / hauteur_y;
@@ -1831,16 +1934,27 @@ impl FreeOpticalGuiApp {
         let vers_ecran = |z: f64, y: f64| -> Pos2 {
             Pos2::new(
                 centre_ecran.x + ((z - z_milieu) * echelle) as f32,
-                centre_ecran.y - (y * echelle) as f32,
+                centre_ecran.y - ((y - y_milieu) * echelle) as f32,
             )
         };
 
-        // 1. Grille de fond et axe optique (Y = 0)
-        tracer_segment(&painter, vers_ecran(z_min - 50.0, 0.0), vers_ecran(z_max + 50.0, 0.0), 1.08, Color32::from_rgb(100, 125, 180));
+        // 1. Axe optique (Y = 0), ou ligne brisée qui suit les ruptures de repère
+        let couleur_axe = Color32::from_rgb(100, 125, 180);
+        if sys.a_des_coupures() {
+            let mut axe = vec![vers_ecran(z_min, 0.0)];
+            axe.extend(sys.points_axe().iter().map(|o| vers_ecran(o.z, o.y)));
+            tracer_polyligne(&painter, &axe, 1.08, couleur_axe);
+        } else {
+            tracer_segment(&painter, vers_ecran(z_min - 50.0, 0.0), vers_ecran(z_max + 50.0, 0.0), 1.08, couleur_axe);
+        }
 
         // 2. Remplissage et contours des éléments en verre (Lentilles & Cubes Séparateurs)
         let nb_pts_courbe = 48;
         for (idx, (surf, &z_sommet)) in sys.surfaces.iter().zip(positions_z.iter()).enumerate() {
+            if surf.est_coupure() {
+                continue;
+            }
+            let rep = &reperes[idx];
             let sd = surf.semi_diametre;
             let mat = sys.catalogue.resoudre(&surf.verre);
 
@@ -1849,7 +1963,7 @@ impl FreeOpticalGuiApp {
             for k in 0..=nb_pts_courbe {
                 let y = -sd + 2.0 * sd * (k as f64) / (nb_pts_courbe as f64);
                 if let Some(f_z) = surf.fleche(y.abs()) {
-                    let g = surf.vers_global(z_sommet, 0.0, y, f_z);
+                    let g = rep.vers_global(0.0, y, f_z);
                     pts_surf.push(vers_ecran(g.z, g.y));
                 }
             }
@@ -1864,7 +1978,7 @@ impl FreeOpticalGuiApp {
                 for k in (0..=nb_pts_courbe).rev() {
                     let y = -sd_suiv + 2.0 * sd_suiv * (k as f64) / (nb_pts_courbe as f64);
                     if let Some(f_z) = surf_suiv.fleche(y.abs()) {
-                        let g = surf_suiv.vers_global(z_suiv, 0.0, y, f_z);
+                        let g = reperes[idx + 1].vers_global(0.0, y, f_z);
                         pts_suiv.push(vers_ecran(g.z, g.y));
                     }
                 }
@@ -1883,9 +1997,9 @@ impl FreeOpticalGuiApp {
                 };
                 let sd_bande = sd.min(sd_suiv);
                 let nb_bandes = 48;
-                let bord = |s: &Surface, z: f64, y: f64| {
+                let bord = |s: &Surface, r: &Repere, y: f64| {
                     s.fleche(y.abs()).map(|f| {
-                        let g = s.vers_global(z, 0.0, y, f);
+                        let g = r.vers_global(0.0, y, f);
                         vers_ecran(g.z, g.y)
                     })
                 };
@@ -1894,10 +2008,10 @@ impl FreeOpticalGuiApp {
                     let ya = -sd_bande + 2.0 * sd_bande * (k as f64) / (nb_bandes as f64);
                     let yb = -sd_bande + 2.0 * sd_bande * ((k + 1) as f64) / (nb_bandes as f64);
                     if let (Some(a1), Some(b1), Some(b2), Some(a2)) = (
-                        bord(surf, z_sommet, ya),
-                        bord(surf, z_sommet, yb),
-                        bord(surf_suiv, z_suiv, yb),
-                        bord(surf_suiv, z_suiv, ya),
+                        bord(surf, rep, ya),
+                        bord(surf, rep, yb),
+                        bord(surf_suiv, &reperes[idx + 1], yb),
+                        bord(surf_suiv, &reperes[idx + 1], ya),
                     ) {
                         let i0 = maillage.vertices.len() as u32;
                         for p in [a1, b1, b2, a2] {
@@ -2083,9 +2197,11 @@ impl FreeOpticalGuiApp {
 
         let sys = &self.systeme;
         let positions_z = sys.positions_z_sommets();
-        let (z_min_sys, z_max_sys) = sys.etendue_axiale();
-        let longueur = (z_max_sys - z_min_sys).max(20.0);
+        let reperes = sys.reperes();
+        let [z_min_sys, z_max_sys, y_min_sys, y_max_sys] = sys.boite_englobante();
+        let longueur = (z_max_sys - z_min_sys).max(y_max_sys - y_min_sys).max(20.0);
         let z_centre = 0.5 * (z_min_sys + z_max_sys);
+        let y_centre = 0.5 * (y_min_sys + y_max_sys);
         let max_sd = sys
             .surfaces
             .iter()
@@ -2101,7 +2217,7 @@ impl FreeOpticalGuiApp {
 
         let projeter = |p: Point3| -> Pos2 {
             let x = p.x;
-            let y = p.y;
+            let y = p.y - y_centre;
             let z = p.z - z_centre;
             let x1 = z * yaw.cos() + x * yaw.sin();
             let z1 = -z * yaw.sin() + x * yaw.cos();
@@ -2137,6 +2253,12 @@ impl FreeOpticalGuiApp {
         let nb_cercle = 40;
         let nb_meridien = 24;
         for (idx, (surf, &z_sommet)) in sys.surfaces.iter().zip(positions_z.iter()).enumerate() {
+            if surf.est_coupure() {
+                continue;
+            }
+            let rep = reperes[idx];
+            // Point du repère local de la surface projeté à l'écran
+            let local = |x: f64, y: f64, z: f64| projeter(rep.vers_global(x, y, z));
             let sd = surf.semi_diametre;
             let mat = sys.catalogue.resoudre(&surf.verre);
             let couleur = if idx == self.ligne_selectionnee {
@@ -2170,11 +2292,7 @@ impl FreeOpticalGuiApp {
                         let mut pts = Vec::with_capacity(nb_cercle + 1);
                         for k in 0..=nb_cercle {
                             let th = 2.0 * std::f64::consts::PI * (k as f64) / (nb_cercle as f64);
-                            pts.push(projeter(Point3::new(
-                                r * th.cos(),
-                                r * th.sin(),
-                                z_sommet + z_sag,
-                            )));
+                            pts.push(local(r * th.cos(), r * th.sin(), z_sag));
                         }
                         tracer_polyligne(&painter, &pts, 1.32, couleur);
                     }
@@ -2185,11 +2303,7 @@ impl FreeOpticalGuiApp {
                     for k in 0..=nb_meridien {
                         let r_s = -sd + 2.0 * sd * (k as f64) / (nb_meridien as f64);
                         if let Some(z_sag) = surf.fleche(r_s.abs()) {
-                            pts.push(projeter(Point3::new(
-                                r_s * ca,
-                                r_s * sa,
-                                z_sommet + z_sag,
-                            )));
+                            pts.push(local(r_s * ca, r_s * sa, z_sag));
                         }
                     }
                     tracer_polyligne(&painter, &pts, 1.2, couleur);
@@ -2222,13 +2336,16 @@ impl FreeOpticalGuiApp {
                     let m4 = projeter(Point3::new(-x_m, y_bras, z_m2));
                     tracer_polyligne(&painter, &[m1, m2, m3, m4, m1], 1.32, COL_DOS_ORANGE);
                 } else if let (Some(f1), Some(f2)) = (surf.fleche(sd), surf_suiv.fleche(sd_suiv)) {
+                    let rep_suiv = reperes[idx + 1];
                     for k in 0..8 {
                         let th = 2.0 * std::f64::consts::PI * (k as f64) / 8.0;
-                        tracer_segment(&painter, projeter(Point3::new(sd * th.cos(), sd * th.sin(), z_sommet + f1)), projeter(Point3::new(
-                                sd_suiv * th.cos(),
-                                sd_suiv * th.sin(),
-                                z_suiv + f2,
-                            )), 1.2, COL_DOS_WHITE);
+                        tracer_segment(
+                            &painter,
+                            local(sd * th.cos(), sd * th.sin(), f1),
+                            projeter(rep_suiv.vers_global(sd_suiv * th.cos(), sd_suiv * th.sin(), f2)),
+                            1.2,
+                            COL_DOS_WHITE,
+                        );
                     }
                 }
             }

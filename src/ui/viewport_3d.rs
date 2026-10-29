@@ -44,6 +44,7 @@ fn projeter_isometrique(
 pub fn dessiner_filaire_3d(f: &mut Frame, zone: Rect, app: &AppState) {
     let sys = &app.systeme;
     let positions_z = sys.positions_z_sommets();
+    let reperes = sys.reperes();
     let (z_min_sys, z_max_sys) = sys.etendue_axiale();
     let z_max = (z_max_sys - z_min_sys).max(20.0);
     let z_centre = 0.5 * (z_min_sys + z_max_sys);
@@ -90,6 +91,10 @@ pub fn dessiner_filaire_3d(f: &mut Frame, zone: Rect, app: &AppState) {
             let nb_seg_meridien = 20;
 
             for (idx, (surf, &z_sommet)) in sys.surfaces.iter().zip(positions_z.iter()).enumerate() {
+                if surf.est_coupure() {
+                    continue;
+                }
+                let rep = reperes[idx];
                 let sd = surf.semi_diametre;
                 let mat = sys.catalogue.resoudre(&surf.verre);
                 let couleur = if idx == app.ligne_selectionnee {
@@ -133,13 +138,12 @@ pub fn dessiner_filaire_3d(f: &mut Frame, zone: Rect, app: &AppState) {
                         let Some(z_sag) = surf.fleche(r) else {
                             continue;
                         };
-                        let z_anneau = z_sommet + z_sag;
 
                         let mut pt_prec: Option<(f64, f64)> = None;
                         for k in 0..=nb_seg_cercle {
                             let theta =
                                 2.0 * std::f64::consts::PI * (k as f64) / (nb_seg_cercle as f64);
-                            let p3 = Point3::new(r * theta.cos(), r * theta.sin(), z_anneau);
+                            let p3 = rep.vers_global(r * theta.cos(), r * theta.sin(), z_sag);
                             let proj = projeter_isometrique(p3, z_centre, yaw_rad, pitch_rad);
                             if let Some((up, vp)) = pt_prec {
                                 ctx.draw(&CanvasLine {
@@ -160,11 +164,7 @@ pub fn dessiner_filaire_3d(f: &mut Frame, zone: Rect, app: &AppState) {
                         for k in 0..=nb_seg_meridien {
                             let r_signe = -sd + 2.0 * sd * (k as f64) / (nb_seg_meridien as f64);
                             if let Some(z_sag) = surf.fleche(r_signe.abs()) {
-                                let p3 = Point3::new(
-                                    r_signe * cos_a,
-                                    r_signe * sin_a,
-                                    z_sommet + z_sag,
-                                );
+                                let p3 = rep.vers_global(r_signe * cos_a, r_signe * sin_a, z_sag);
                                 let proj = projeter_isometrique(p3, z_centre, yaw_rad, pitch_rad);
                                 if let Some((up, vp)) = pt_prec {
                                     ctx.draw(&CanvasLine {
@@ -219,16 +219,8 @@ pub fn dessiner_filaire_3d(f: &mut Frame, zone: Rect, app: &AppState) {
                     {
                         for k in 0..8 {
                             let theta = 2.0 * std::f64::consts::PI * (k as f64) / 8.0;
-                            let p_a = Point3::new(
-                                sd * theta.cos(),
-                                sd * theta.sin(),
-                                z_sommet + f1,
-                            );
-                            let p_b = Point3::new(
-                                sd_suiv * theta.cos(),
-                                sd_suiv * theta.sin(),
-                                z_suiv + f2,
-                            );
+                            let p_a = rep.vers_global(sd * theta.cos(), sd * theta.sin(), f1);
+                            let p_b = reperes[idx + 1].vers_global(sd_suiv * theta.cos(), sd_suiv * theta.sin(), f2);
                             let (u1, v1) = projeter_isometrique(p_a, z_centre, yaw_rad, pitch_rad);
                             let (u2, v2) = projeter_isometrique(p_b, z_centre, yaw_rad, pitch_rad);
                             ctx.draw(&CanvasLine {

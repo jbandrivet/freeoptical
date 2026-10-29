@@ -97,8 +97,7 @@ pub fn calculer_courbure_distorsion(sys: &OpticalSystem, lambda_nm: f64, nb: usi
     }
     let nb = nb.max(3);
     let vise = VisePupille::calculer(sys);
-    let image = sys.surfaces.last().ok_or("")?;
-    let inverse = image.rotation().inverse();
+    let inverse = sys.reperes().last().ok_or("")?.rotation.inverse();
     let eps = 0.05;
     // Rayons voisins du rayon principal : intersection de leurs projections dans le repère local
     // du plan image, le long de l'axe local, orientée dans le sens de propagation
@@ -224,6 +223,13 @@ pub fn calculer_seidel(sys: &OpticalSystem) -> Result<Seidel, String> {
     let h = n * (ub * y - u * yb);
     let mut lignes = Vec::new();
     for (i, surf) in sys.surfaces.iter().take(nb).enumerate() {
+        if surf.est_coupure() {
+            // Rupture de repère : simple transfert
+            lignes.push(LigneSeidel { surface: i + 1, ..Default::default() });
+            y += surf.epaisseur * u;
+            yb += surf.epaisseur * ub;
+            continue;
+        }
         if surf.type_surface == SurfaceType::Ideale && surf.focale_ideale_mm != 0.0 {
             // Lentille idéale : aucune aberration, seulement la déviation paraxiale
             u = (n * u - y * n.abs() / surf.focale_ideale_mm) / n;

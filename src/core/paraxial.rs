@@ -40,10 +40,10 @@ pub struct ParaxialData {
 
 /// Indice signé du milieu situé après la surface `idx` : le signe s'inverse à chaque miroir
 /// (convention Zemax, cohérente avec les épaisseurs négatives après une réflexion).
-fn indice_signe_apres(systeme: &OpticalSystem, idx: usize, lambda: f64) -> f64 {
+pub(crate) fn indice_signe_apres(systeme: &OpticalSystem, idx: usize, lambda: f64) -> f64 {
     let mut signe = 1.0;
     let mut n = 1.0;
-    for surf in &systeme.surfaces[..=idx] {
+    for surf in systeme.surfaces[..=idx].iter().filter(|s| !s.est_coupure()) {
         let mat = systeme.catalogue.resoudre(&surf.verre);
         if mat.est_miroir() {
             signe = -signe;
@@ -57,7 +57,7 @@ fn indice_signe_apres(systeme: &OpticalSystem, idx: usize, lambda: f64) -> f64 {
 /// Propage un rayon paraxial `(y, u)` à partir du sommet de la surface `debut` (avant réfraction)
 /// à travers les surfaces `debut..fin`. Retourne `(y, u, n)` juste après la réfraction sur la
 /// surface `fin - 1`, `u` étant la pente dy/dz globale et `n` l'indice signé du milieu atteint.
-fn tracer_paraxial(
+pub(crate) fn tracer_paraxial(
     systeme: &OpticalSystem,
     lambda: f64,
     debut: usize,
@@ -76,6 +76,9 @@ fn tracer_paraxial(
             y += systeme.surfaces[idx - 1].epaisseur * u;
         }
         let surf = &systeme.surfaces[idx];
+        if surf.est_coupure() {
+            continue;
+        }
         if surf.type_surface == crate::core::types::SurfaceType::Ideale && surf.focale_ideale_mm != 0.0 {
             // Lentille idéale de puissance |n| / f dans le milieu courant
             u = (n * u - y * n.abs() / surf.focale_ideale_mm) / n;
@@ -114,6 +117,9 @@ pub fn objets_lentilles_ideales(systeme: &OpticalSystem) -> Vec<Option<f64>> {
             y += systeme.surfaces[idx - 1].epaisseur * u;
         }
         let surf = &systeme.surfaces[idx];
+        if surf.est_coupure() {
+            continue;
+        }
         if surf.type_surface == crate::core::types::SurfaceType::Ideale && surf.focale_ideale_mm != 0.0 {
             if u.abs() > 1e-15 {
                 objets[idx] = Some(-y / u * n.signum());

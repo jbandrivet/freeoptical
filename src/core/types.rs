@@ -70,6 +70,10 @@ pub enum SurfaceType {
     /// Lentille idéale (paraxiale) de focale donnée, sans aberration : plan qui fait converger
     /// tout faisceau parallèle en un point de son plan focal
     Ideale,
+    /// Rupture de repère (Coordinate Break de Zemax) : surface fictive, sans action sur les
+    /// rayons, qui décentre puis incline le repère de toutes les surfaces suivantes ; son
+    /// épaisseur est comptée le long du nouvel axe
+    CoupureRepere,
 }
 
 impl SurfaceType {
@@ -80,6 +84,7 @@ impl SurfaceType {
             SurfaceType::Conique => tr!("CONIQUE", "CONIC", "KONISCH"),
             SurfaceType::Aspherique => tr!("ASPHERIQUE", "ASPHERIC", "ASPHÄRISCH"),
             SurfaceType::Ideale => tr!("IDEALE", "IDEAL", "IDEAL"),
+            SurfaceType::CoupureRepere => "COORDBRK",
         }
     }
 
@@ -88,6 +93,7 @@ impl SurfaceType {
             "PLANE" | "PLAN" | "FLAT" => SurfaceType::Plane,
             "CONIQUE" | "CONIC" | "KONISCH" => SurfaceType::Conique,
             "IDEALE" | "IDEAL" | "PARAXIAL" | "PARAXIALE" => SurfaceType::Ideale,
+            "COORDBRK" | "COUPURE" | "RUPTURE" | "COORDINATE_BREAK" => SurfaceType::CoupureRepere,
             "ASPHERIQUE" | "ASPHERIC" | "EVEN_ASPHERE" | "ASPHÄRISCH" | "ASPHAERISCH" => {
                 SurfaceType::Aspherique
             }
@@ -187,6 +193,22 @@ pub struct Surface {
     /// Focale d'une lentille idéale (type `Ideale`), en mm
     #[serde(default, skip_serializing_if = "est_nul")]
     pub focale_ideale_mm: f64,
+    /// Rupture de repère : inclinaison appliquée avant le décentrement (ordre 1 de Zemax, qui
+    /// sert à défaire une rupture précédente) ; par défaut décentrement puis inclinaison
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inclinaison_avant_decentrement: bool,
+    /// Rupture de repère : rotation autour de Z (degrés), après X et Y
+    #[serde(default, skip_serializing_if = "est_nul")]
+    pub inclinaison_z_deg: f64,
+    /// Calcul automatique (solve) du rayon de courbure
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solve_rayon: Option<Solve>,
+    /// Calcul automatique (solve) de l'épaisseur
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solve_epaisseur: Option<Solve>,
+    /// Reprise (pickup) de la constante conique
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solve_conique: Option<Solve>,
 }
 
 fn est_nul(v: &f64) -> bool {
@@ -208,7 +230,9 @@ impl Surface {
         verre: impl Into<String>,
         semi_diametre: f64,
     ) -> Self {
-        let rayon_effectif = if matches!(type_surface, SurfaceType::Plane | SurfaceType::Ideale) || rayon.abs() < 1e-9 {
+        let rayon_effectif = if matches!(type_surface, SurfaceType::Plane | SurfaceType::Ideale | SurfaceType::CoupureRepere)
+            || rayon.abs() < 1e-9
+        {
             f64::INFINITY
         } else {
             rayon
@@ -229,6 +253,11 @@ impl Surface {
             reseau_traits_mm: 0.0,
             reseau_ordre: 0,
             focale_ideale_mm: 0.0,
+            inclinaison_avant_decentrement: false,
+            inclinaison_z_deg: 0.0,
+            solve_rayon: None,
+            solve_epaisseur: None,
+            solve_conique: None,
         }
     }
 
@@ -246,6 +275,21 @@ impl Surface {
             * nalgebra::Rotation3::from_axis_angle(&NaVector3::x_axis(), a)
     }
 
+    /// Vrai pour une rupture de repère (Coordinate Break)
+    pub fn est_coupure(&self) -> bool {
+        self.type_surface == SurfaceType::CoupureRepere
+    }
+
+    /// Rotation d'une rupture de repère, comme dans Zemax : autour de X, puis du nouvel Y, puis du
+    /// nouveau Z ; dans l'ordre inverse (Z, Y, X) quand l'inclinaison précède le décentrement, de
+    /// sorte qu'une rupture aux valeurs opposées dans cet ordre défait exactement la précédente
+    pub fn rotation_coupure(&self) -> nalgebra::Rotation3<f64> {
+        let rx = nalgebra::Rotation3::from_axis_angle(&NaVector3::x_axis(), self.inclinaison_deg[0].to_radians());
+        let ry = nalgebra::Rotation3::from_axis_angle(&NaVector3::y_axis(), self.inclinaison_deg[1].to_radians());
+        let rz = nalgebra::Rotation3::from_axis_angle(&NaVector3::z_axis(), self.inclinaison_z_deg.to_radians());
+        if self.inclinaison_avant_decentrement { rz * ry * rx } else { rx * ry * rz }
+    }
+
     /// Sommet de la surface dans le repère global (position axiale `z_sommet` et décentrement)
     pub fn sommet_global(&self, z_sommet: f64) -> Point3 {
         Point3::new(self.decentrement[0], self.decentrement[1], z_sommet)
@@ -258,12 +302,12 @@ impl Surface {
 
     /// Vrai si la surface est décentrée ou inclinée
     pub fn est_hors_axe(&self) -> bool {
-        !est_nul2(&self.decentrement) || !est_nul2(&self.inclinaison_deg)
+        !est_nul2(&self.decentrement) || !est_nul2(&self.inclinaison_deg) || self.inclinaison_z_deg != 0.0
     }
 
     /// Retourne la courbure axiale c = 1 / R (en mm⁻¹), 0.0 si la surface est plane
     pub fn courbure(&self) -> f64 {
-        if matches!(self.type_surface, SurfaceType::Plane | SurfaceType::Ideale)
+        if matches!(self.type_surface, SurfaceType::Plane | SurfaceType::Ideale | SurfaceType::CoupureRepere)
             || !self.rayon.is_finite()
             || self.rayon.abs() < 1e-9
         {
@@ -354,6 +398,91 @@ impl Surface {
         let dz_dy = dz_dr * (y / r);
         let n = Vec3::new(-dz_dx, -dz_dy, 1.0);
         Some(n.normalize())
+    }
+}
+
+/// Calcul automatique d'un paramètre de surface (solve de Zemax), refait avant chaque analyse
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "type")]
+pub enum Solve {
+    /// Épaisseur : le rayon marginal arrive à la hauteur `hauteur_mm` sur la surface suivante
+    /// (0 = mise au point). `zone` = 0 : rayon paraxial ; sinon rayon réel passant à cette
+    /// fraction du rayon de la pupille (0,7071 : zone qui équilibre l'aberration sphérique)
+    HauteurMarginale {
+        #[serde(default)]
+        hauteur_mm: f64,
+        #[serde(default)]
+        zone: f64,
+    },
+    /// Épaisseur : le rayon principal paraxial arrive à la hauteur donnée sur la surface suivante
+    /// (0 = surface suivante dans une pupille)
+    HauteurPrincipale {
+        #[serde(default)]
+        hauteur_mm: f64,
+    },
+    /// Rayon : pente paraxiale du rayon marginal après la surface
+    AngleMarginal { angle: f64 },
+    /// Rayon : pente paraxiale du rayon principal après la surface
+    AnglePrincipal { angle: f64 },
+    /// Rayon : nombre d'ouverture image imposé (pente marginale −1/2N après la surface)
+    NombreOuverture { f_nombre: f64 },
+    /// Rayon : surface aplanétique pour le rayon marginal (ni sphérique ni coma)
+    Aplanetique,
+    /// Reprise (pickup) : valeur de la surface `surface` (numéro affiché, à partir de 1)
+    /// multipliée par `facteur`, plus `decalage`
+    Reprise {
+        surface: usize,
+        #[serde(default = "un")]
+        facteur: f64,
+        #[serde(default)]
+        decalage: f64,
+    },
+}
+
+fn un() -> f64 {
+    1.0
+}
+
+impl Solve {
+    pub fn libelle(&self) -> String {
+        match self {
+            Solve::HauteurMarginale { hauteur_mm, zone } if *zone != 0.0 => {
+                trf!("M h={:.4} z={:.3}", "M h={:.4} z={:.3}", "M h={:.4} z={:.3}", hauteur_mm, zone)
+            }
+            Solve::HauteurMarginale { hauteur_mm, .. } => format!("M h={hauteur_mm:.4}"),
+            Solve::HauteurPrincipale { hauteur_mm } => format!("C h={hauteur_mm:.4}"),
+            Solve::AngleMarginal { angle } => format!("M u'={angle:.5}"),
+            Solve::AnglePrincipal { angle } => format!("C u'={angle:.5}"),
+            Solve::NombreOuverture { f_nombre } => format!("F/{f_nombre:.3}"),
+            Solve::Aplanetique => tr!("Aplanét.", "Aplanatic", "Aplanat.").to_string(),
+            Solve::Reprise { surface, facteur, decalage } => {
+                trf!("P #{} ×{} {:+}", "P #{} ×{} {:+}", "P #{} ×{} {:+}", surface, facteur, decalage)
+            }
+        }
+    }
+}
+
+/// Repère local d'une surface dans l'espace global : sommet et orientation des axes
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Repere {
+    pub origine: Point3,
+    pub rotation: nalgebra::Rotation3<f64>,
+}
+
+impl Repere {
+    /// Point du repère local exprimé dans le repère global
+    pub fn vers_global(&self, x: f64, y: f64, z: f64) -> Point3 {
+        self.origine + self.rotation * Vec3::new(x, y, z)
+    }
+
+    /// Point global exprimé dans le repère local
+    pub fn vers_local(&self, p: &Point3) -> Point3 {
+        Point3::from(self.rotation.inverse() * (p - self.origine))
+    }
+
+    /// Axe Z local (axe optique de la surface) dans le repère global
+    pub fn axe(&self) -> Vec3 {
+        self.rotation * Vec3::new(0.0, 0.0, 1.0)
     }
 }
 
@@ -494,21 +623,95 @@ impl OpticalSystem {
         let nb_miroirs = self
             .surfaces
             .iter()
-            .filter(|s| self.catalogue.resoudre(&s.verre).est_miroir())
+            .filter(|s| !s.est_coupure() && self.catalogue.resoudre(&s.verre).est_miroir())
             .count();
         if nb_miroirs % 2 == 0 { 1.0 } else { -1.0 }
     }
 
     /// Positions axiales extrêmes (z_min, z_max) des sommets et des bords de toutes les surfaces (en mm)
     pub fn etendue_axiale(&self) -> (f64, f64) {
-        let mut z_min = 0.0_f64;
-        let mut z_max = 0.0_f64;
-        for (surf, z) in self.surfaces.iter().zip(self.positions_z_sommets()) {
-            let fleche_bord = surf.fleche(surf.semi_diametre).unwrap_or(0.0);
-            z_min = z_min.min(z).min(z + fleche_bord);
-            z_max = z_max.max(z).max(z + fleche_bord);
+        let b = self.boite_englobante();
+        (b[0], b[1])
+    }
+
+    /// Boîte englobante globale [z_min, z_max, y_min, y_max] des sommets et des bords des
+    /// surfaces dans le plan méridien (ruptures de repère exclues), origine incluse
+    pub fn boite_englobante(&self) -> [f64; 4] {
+        let mut b = [0.0_f64; 4];
+        for (surf, rep) in self.surfaces.iter().zip(self.reperes()) {
+            if surf.est_coupure() {
+                continue;
+            }
+            let sd = surf.semi_diametre;
+            let fleche_bord = surf.fleche(sd).unwrap_or(0.0);
+            for p in [rep.vers_global(0.0, 0.0, 0.0), rep.vers_global(0.0, sd, fleche_bord), rep.vers_global(0.0, -sd, fleche_bord)] {
+                b[0] = b[0].min(p.z);
+                b[1] = b[1].max(p.z);
+                b[2] = b[2].min(p.y);
+                b[3] = b[3].max(p.y);
+            }
         }
-        (z_min, z_max)
+        b
+    }
+
+    /// Vrai si le système contient une rupture de repère (axe optique replié)
+    pub fn a_des_coupures(&self) -> bool {
+        self.surfaces.iter().any(|s| s.est_coupure())
+    }
+
+    /// Vrai si une surface est décentrée, inclinée, ou si l'axe est replié
+    pub fn est_hors_axe(&self) -> bool {
+        self.surfaces.iter().any(|s| s.est_hors_axe())
+    }
+
+    /// Point de l'axe optique (repère courant, avant le décentrement propre) de chaque surface,
+    /// pour dessiner l'axe replié par les ruptures de repère
+    pub fn points_axe(&self) -> Vec<Point3> {
+        let mut o = Point3::origin();
+        let mut r = nalgebra::Rotation3::identity();
+        let mut points = Vec::with_capacity(self.surfaces.len());
+        for s in &self.surfaces {
+            if s.est_coupure() {
+                let d = Vec3::new(s.decentrement[0], s.decentrement[1], 0.0);
+                if s.inclinaison_avant_decentrement {
+                    r *= s.rotation_coupure();
+                    o += r * d;
+                } else {
+                    o += r * d;
+                    r *= s.rotation_coupure();
+                }
+            }
+            points.push(o);
+            o += r * Vec3::new(0.0, 0.0, s.epaisseur);
+        }
+        points
+    }
+
+    /// Repère de chaque surface : sommet (décentrement compris) et orientation (inclinaison
+    /// propre comprise). Une rupture de repère modifie le repère courant de toutes les surfaces
+    /// suivantes ; le décentrement et l'inclinaison d'une surface ordinaire ne valent que pour
+    /// elle. L'épaisseur fait avancer le long de l'axe Z du repère courant.
+    pub fn reperes(&self) -> Vec<Repere> {
+        let mut o = Point3::origin();
+        let mut r = nalgebra::Rotation3::identity();
+        let mut reperes = Vec::with_capacity(self.surfaces.len());
+        for s in &self.surfaces {
+            let d = Vec3::new(s.decentrement[0], s.decentrement[1], 0.0);
+            if s.est_coupure() {
+                if s.inclinaison_avant_decentrement {
+                    r *= s.rotation_coupure();
+                    o += r * d;
+                } else {
+                    o += r * d;
+                    r *= s.rotation_coupure();
+                }
+                reperes.push(Repere { origine: o, rotation: r });
+            } else {
+                reperes.push(Repere { origine: o + r * d, rotation: r * s.rotation() });
+            }
+            o += r * Vec3::new(0.0, 0.0, s.epaisseur);
+        }
+        reperes
     }
 
     /// Calcule les positions axiales Z cumulées des sommets de chaque surface (en mm)

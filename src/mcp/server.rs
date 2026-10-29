@@ -30,7 +30,9 @@ pub struct CreerSystemeParams {
 /// Paramètres de l'outil MCP `ajouter_surface(type, rayon, epaisseur, verre, semi_diametre)`
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct AjouterSurfaceParams {
-    /// Type géométrique de la surface : `"PLANE"`, `"SPHERIQUE"`, `"CONIQUE"`, ou `"ASPHERIQUE"`
+    /// Type géométrique de la surface : `"PLANE"`, `"SPHERIQUE"`, `"CONIQUE"`, `"ASPHERIQUE"`,
+    /// `"IDEALE"` ou `"COORDBRK"` (rupture de repère : décentre et incline le repère de toutes
+    /// les surfaces suivantes, réglée ensuite par `modifier_surface`)
     #[serde(rename = "type", alias = "type_surface")]
     pub r#type: String,
     /// Rayon de courbure en mm (0.0 ou très grand pour une surface plane)
@@ -46,7 +48,8 @@ pub struct AjouterSurfaceParams {
 /// Sous-structure des propriétés modifiables dans `modifier_surface(index, parametres)`
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub struct SurfacePatchParams {
-    /// Nouveau type de surface (`"PLANE"`, `"SPHERIQUE"`, `"CONIQUE"`, `"ASPHERIQUE"`)
+    /// Nouveau type de surface (`"PLANE"`, `"SPHERIQUE"`, `"CONIQUE"`, `"ASPHERIQUE"`, `"IDEALE"`,
+    /// `"COORDBRK"`)
     #[serde(rename = "type", alias = "type_surface")]
     pub r#type: Option<String>,
     /// Nouveau rayon de courbure en mm
@@ -67,7 +70,8 @@ pub struct SurfacePatchParams {
     pub est_diaphragme: Option<bool>,
     /// Décentrement du sommet [x, y] en mm
     pub decentrement: Option<[f64; 2]>,
-    /// Inclinaison [autour de X, puis autour de Y] en degrés
+    /// Inclinaison [autour de X, puis autour de Y] en degrés ; sur une rupture de repère
+    /// (`"COORDBRK"`), elle s'applique à toutes les surfaces suivantes
     pub inclinaison_deg: Option<[f64; 2]>,
     /// Rayon de l'obstruction centrale en mm (0 = aucune)
     pub rayon_obstruction: Option<f64>,
@@ -77,6 +81,23 @@ pub struct SurfacePatchParams {
     pub reseau_ordre: Option<i32>,
     /// Focale d'une lentille idéale (type `"IDEALE"`), en mm
     pub focale_ideale_mm: Option<f64>,
+    /// Rupture de repère (type `"COORDBRK"`) : inclinaison appliquée avant le décentrement
+    /// (ordre 1 de Zemax, pour défaire une rupture précédente)
+    pub inclinaison_avant_decentrement: Option<bool>,
+    /// Rupture de repère : rotation autour du nouvel axe Z (degrés), après X et Y
+    pub inclinaison_z_deg: Option<f64>,
+    /// Solve du rayon : `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"AngleMarginal","angle":-0.05}`,
+    /// `{"type":"AnglePrincipal","angle":0}`, `{"type":"Aplanetique"}` ou
+    /// `{"type":"Reprise","surface":2,"facteur":-1,"decalage":0}` (surface numérotée à partir de 1)
+    pub solve_rayon: Option<crate::core::types::Solve>,
+    /// Solve de l'épaisseur : `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}` (mise au point ;
+    /// zone ≠ 0 : rayon réel à cette fraction de la pupille), `{"type":"HauteurPrincipale","hauteur_mm":0}`
+    /// (surface suivante dans une pupille) ou une reprise
+    pub solve_epaisseur: Option<crate::core::types::Solve>,
+    /// Reprise de la constante conique : `{"type":"Reprise","surface":1,"facteur":1,"decalage":0}`
+    pub solve_conique: Option<crate::core::types::Solve>,
+    /// Vrai pour retirer les solves existants de la surface (avant d'appliquer ceux fournis)
+    pub retirer_solves: Option<bool>,
 }
 
 /// Paramètres de l'outil MCP `modifier_surface(index, parametres)`
@@ -102,6 +123,17 @@ pub struct OptimiserSystemeParams {
 pub struct ImporterTeloptikParams {
     /// Chemin absolu d'un fichier `.TDS` (TDESIGN), `.RLD` (LENSDES) ou `.DES` (RAYTRACE)
     pub chemin: String,
+}
+
+/// Paramètres de l'outil MCP `analyser_empreinte`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct AnalyserEmpreinteParams {
+    /// Surface étudiée (0..N-1, 0 par défaut)
+    pub index_surface: Option<usize>,
+    /// Vrai pour donner d'abord à chaque surface le demi-diamètre nécessaire
+    pub ajuster_demi_diametres: Option<bool>,
+    /// Vrai pour retourner aussi la liste des impacts (x, y, champ, longueur d'onde, arrêté)
+    pub points: Option<bool>,
 }
 
 /// Paramètres de l'outil MCP `definir_systeme`
@@ -256,7 +288,27 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 15] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 19] = [
+    (
+        "importer_zemax",
+        "Imports a sequential Zemax OpticStudio lens file (.zmx, UTF-16 or ASCII) and makes it the current system: standard, even-asphere, coordinate-break, paraxial and grating surfaces, glasses (catalogue name or nd/Vd model), apertures and obscurations, pupil, fields (angles, object or image heights), wavelengths. Solves are imported as frozen values. Returns the system, its paraxial data and the items not imported.",
+        "Importiert eine sequentielle Zemax-OpticStudio-Linsendatei (.zmx, UTF-16 oder ASCII) als aktuelles System: Standard-, gerade asphärische, Koordinatenbruch-, paraxiale und Gitterflächen, Gläser (Katalogname oder nd/Vd-Modell), Aperturen und Abschattungen, Pupille, Felder (Winkel, Objekt- oder Bildhöhen), Wellenlängen. Solves werden als feste Werte übernommen. Gibt das System, seine paraxialen Daten und die nicht übernommenen Elemente zurück.",
+    ),
+    (
+        "analyser_energie_encerclee",
+        "Encircled energy of a field around the spot centroid: geometric curve (all wavelengths weighted), diffraction curve from the polychromatic PSF, Airy curve of an aberration-free pupil, radii containing 50% and 80% of the energy (µm).",
+        "Eingeschlossene Energie eines Feldes um den Schwerpunkt: geometrische Kurve (alle Wellenlängen gewichtet), Beugungskurve aus der polychromatischen PSF, Airy-Kurve einer fehlerfreien Pupille, Radien mit 50 % und 80 % der Energie (µm).",
+    ),
+    (
+        "analyser_chromatisme",
+        "Chromatic aberrations: paraxial focal shift versus wavelength over the system band (range, diffraction depth of focus ±2λN²) and lateral colour (chief ray image height spread between wavelengths versus field, compared with the Airy radius).",
+        "Farbfehler: paraxiale Fokusverschiebung über die Wellenlänge im Band des Systems (Bereich, Beugungs-Schärfentiefe ±2λN²) und Farbquerfehler (Abweichung der Hauptstrahl-Bildhöhe zwischen den Wellenlängen über dem Feld, verglichen mit dem Airy-Radius).",
+    ),
+    (
+        "analyser_empreinte",
+        "Beam footprint on a surface (local frame): ray hits of all fields and wavelengths, radius used, number of stopped rays, and the semi-diameter each surface needs to pass every beam (like Zemax automatic semi-diameters); can apply these semi-diameters.",
+        "Strahlen-Footprint auf einer Fläche (lokales System): Auftreffpunkte aller Felder und Wellenlängen, genutzter Radius, Zahl gestoppter Strahlen und der Halbdurchmesser, den jede Fläche für alle Bündel braucht (wie die automatischen Halbdurchmesser von Zemax); kann diese Halbdurchmesser übernehmen.",
+    ),
     (
         "simuler_bath",
         "Bath interferometer: simulates the interferogram of a concave mirror tested at its centre of curvature (exact paths, source/reference separation and Bath astigmatism, tilt and defocus in fringes, surface errors: Zernike, zone, turned edge) and reduces it against the target conic: measured conic, wavefront and surface PV/RMS, Strehl at 550 nm, Zernike of the deviation. Can save the interferogram as PNG.",
@@ -304,13 +356,13 @@ const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 15] = [
     ),
     (
         "ajouter_surface",
-        "Adds an optical surface (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE) with its radius, thickness, glass and semi-diameter.",
-        "Fügt eine optische Fläche (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE) mit Radius, Dicke, Glas und Halbdurchmesser hinzu.",
+        "Adds an optical surface (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE, IDEALE, or COORDBRK coordinate break) with its radius, thickness, glass and semi-diameter.",
+        "Fügt eine optische Fläche (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE, IDEALE oder Koordinatenbruch COORDBRK) mit Radius, Dicke, Glas und Halbdurchmesser hinzu.",
     ),
     (
         "modifier_surface",
-        "Modifies the properties (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques) of an existing surface.",
-        "Ändert die Eigenschaften (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques) einer vorhandenen Fläche.",
+        "Modifies the properties (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques, decentrement, inclinaison_deg…) of an existing surface, and its solves and pickups (solve_rayon, solve_epaisseur, solve_conique: focus by the marginal ray, surface in a pupil, imposed F-number, aplanatic surface, value copied from another surface).",
+        "Ändert die Eigenschaften (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques, decentrement, inclinaison_deg…) einer vorhandenen Fläche sowie ihre Solves und Übernahmen (solve_rayon, solve_epaisseur, solve_conique: Fokus über den Randstrahl, Fläche in einer Pupille, vorgegebene Blendenzahl, aplanatische Fläche, von einer anderen Fläche übernommener Wert).",
     ),
     (
         "importer_teloptik",
@@ -383,7 +435,7 @@ impl FreeOpticalMcpServer {
     /// Ajoute une surface optique (lentille ou miroir) avant le plan image du système.
     #[tool(
         name = "ajouter_surface",
-        description = "Ajoute une surface optique (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE) avec son rayon, épaisseur, verre et demi-diamètre."
+        description = "Ajoute une surface optique (PLANE, SPHERIQUE, CONIQUE, ASPHERIQUE, IDEALE, ou rupture de repère COORDBRK) avec son rayon, épaisseur, verre et demi-diamètre."
     )]
     pub async fn ajouter_surface(
         &self,
@@ -408,6 +460,7 @@ impl FreeOpticalMcpServer {
         let verre_connu = sys.catalogue.est_connu(&surf.verre);
         let verre = surf.verre.clone();
         sys.surfaces.insert(pos_insertion, surf);
+        crate::core::solves::appliquer_solves(&mut sys);
 
         let paraxial = calculer_paraxial(&sys);
         let mut reponse = serde_json::json!({
@@ -425,7 +478,7 @@ impl FreeOpticalMcpServer {
     /// Modifie les propriétés d'une surface existante à partir de son index (0..N-1).
     #[tool(
         name = "modifier_surface",
-        description = "Modifie les propriétés (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques) d'une surface existante."
+        description = "Modifie les propriétés (type, rayon, epaisseur, verre, semi_diametre, conique, aspheriques, decentrement, inclinaison_deg…) d'une surface existante, ainsi que ses solves et reprises (solve_rayon, solve_epaisseur, solve_conique : mise au point par le rayon marginal, surface dans une pupille, nombre d'ouverture imposé, surface aplanétique, valeur recopiée d'une autre surface)."
     )]
     pub async fn modifier_surface(
         &self,
@@ -498,8 +551,29 @@ impl FreeOpticalMcpServer {
         if let Some(stop) = p.est_diaphragme {
             surf.est_diaphragme = stop;
         }
+        if let Some(v) = p.inclinaison_avant_decentrement {
+            surf.inclinaison_avant_decentrement = v;
+        }
+        if let Some(v) = p.inclinaison_z_deg {
+            surf.inclinaison_z_deg = v;
+        }
+        if p.retirer_solves == Some(true) {
+            surf.solve_rayon = None;
+            surf.solve_epaisseur = None;
+            surf.solve_conique = None;
+        }
+        if p.solve_rayon.is_some() {
+            surf.solve_rayon = p.solve_rayon;
+        }
+        if p.solve_epaisseur.is_some() {
+            surf.solve_epaisseur = p.solve_epaisseur;
+        }
+        if p.solve_conique.is_some() {
+            surf.solve_conique = p.solve_conique;
+        }
 
-        let surf_maj = surf.clone();
+        let alertes = crate::core::solves::appliquer_solves(&mut sys);
+        let surf_maj = sys.surfaces[params.index].clone();
         let paraxial = calculer_paraxial(&sys);
         let mut reponse = serde_json::json!({
             "statut": tr!("Surface modifiée avec succès", "Surface modified", "Fläche geändert"),
@@ -507,8 +581,11 @@ impl FreeOpticalMcpServer {
             "surface": surf_maj,
             "paraxial": paraxial,
         });
-        if !sys.catalogue.est_connu(&surf_maj.verre) {
+        if !sys.catalogue.est_connu(&surf_maj.verre) && !surf_maj.est_coupure() {
             reponse["avertissement"] = avertissement_verre(&surf_maj.verre).into();
+        }
+        if !alertes.is_empty() {
+            reponse["alertes_solves"] = alertes.into();
         }
         serde_json::to_string_pretty(&reponse).unwrap_or_default()
     }
@@ -536,6 +613,109 @@ impl FreeOpticalMcpServer {
             }
             Err(e) => serde_json::json!({ "erreur": e }).to_string(),
         }
+    }
+
+    /// Remplace le système courant par un fichier Zemax `.zmx` importé.
+    #[tool(
+        name = "importer_zemax",
+        description = "Importe un fichier de lentilles Zemax OpticStudio séquentiel (.zmx, UTF-16 ou ASCII) et en fait le système courant : surfaces standard, asphériques paires, ruptures de repère, paraxiales et réseaux, verres (nom de catalogue ou modèle nd/Vd), ouvertures et obstructions, pupille, champs (angles, hauteurs objet ou image), longueurs d'onde. Les solves sont repris comme valeurs figées. Retourne le système, ses données paraxiales et les éléments non repris."
+    )]
+    pub async fn importer_zemax(&self, Parameters(params): Parameters<ImporterTeloptikParams>) -> String {
+        match crate::core::zemax::importer_fichier_zemax(std::path::Path::new(&params.chemin)) {
+            Ok(import) => {
+                let mut sys = self.systeme.lock().unwrap();
+                *sys = import.systeme;
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "systeme": &*sys,
+                    "paraxial": calculer_paraxial(&sys),
+                    "avertissements": import.avertissements,
+                }))
+                .unwrap_or_default()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Énergie encerclée d'un champ.
+    #[tool(
+        name = "analyser_energie_encerclee",
+        description = "Énergie encerclée d'un champ autour du centroïde de la tache : courbe géométrique (toutes longueurs d'onde pondérées), courbe de diffraction tirée de la PSF polychromatique, courbe d'Airy d'une pupille sans aberration, rayons contenant 50 % et 80 % de l'énergie (µm)."
+    )]
+    pub async fn analyser_energie_encerclee(&self, Parameters(params): Parameters<AnalyseOndeParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let champ = sys.champs_deg.get(params.champ_index.unwrap_or(0)).copied().unwrap_or((0.0, 0.0));
+        match crate::core::energie::calculer_energie_encerclee(&sys, champ, true) {
+            Ok(e) => {
+                // Courbes réduites à 41 points
+                let pas = (e.rayons_um.len() / 40).max(1);
+                let reduire = |v: &[f64]| v.iter().step_by(pas).copied().collect::<Vec<f64>>();
+                serde_json::json!({
+                    "champ": e.champ_deg,
+                    "r50_geometrique_um": e.r50_geo_um,
+                    "r80_geometrique_um": e.r80_geo_um,
+                    "r50_diffraction_um": e.r50_diffraction_um,
+                    "r80_diffraction_um": e.r80_diffraction_um,
+                    "rayon_airy_um": e.rayon_airy_um,
+                    "rayons_um": reduire(&e.rayons_um),
+                    "geometrique": reduire(&e.geometrique),
+                    "diffraction": e.diffraction.as_deref().map(reduire),
+                    "airy": reduire(&e.airy),
+                })
+                .to_string()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Décalage focal chromatique et couleur latérale.
+    #[tool(
+        name = "analyser_chromatisme",
+        description = "Aberrations chromatiques : décalage du foyer paraxial en fonction de la longueur d'onde sur le domaine du système (étendue, profondeur de foyer de diffraction ±2λN²) et couleur latérale (écart de hauteur image du rayon principal entre longueurs d'onde en fonction du champ, comparé au rayon d'Airy)."
+    )]
+    pub async fn analyser_chromatisme(&self) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let ou_erreur = |r: Result<serde_json::Value, String>| r.unwrap_or_else(|e| serde_json::json!({ "erreur": e }));
+        serde_json::json!({
+            "decalage_focal": ou_erreur(crate::core::chromatique::calculer_decalage_focal(&sys, 21).map(|d| serde_json::to_value(d).unwrap_or_default())),
+            "couleur_laterale": ou_erreur(crate::core::chromatique::calculer_couleur_laterale(&sys, 11).map(|c| serde_json::to_value(c).unwrap_or_default())),
+        })
+        .to_string()
+    }
+
+    /// Empreinte des faisceaux et demi-diamètres nécessaires.
+    #[tool(
+        name = "analyser_empreinte",
+        description = "Empreinte des faisceaux sur une surface (repère local) : impacts de tous les champs et longueurs d'onde, rayon utilisé, nombre de rayons arrêtés, et demi-diamètre nécessaire à chaque surface pour transmettre tous les faisceaux (comme le demi-diamètre automatique de Zemax) ; peut appliquer ces demi-diamètres."
+    )]
+    pub async fn analyser_empreinte(&self, Parameters(params): Parameters<AnalyserEmpreinteParams>) -> String {
+        let mut sys = self.systeme.lock().unwrap();
+        let requis = crate::core::empreinte::demi_diametres_requis(&sys);
+        if params.ajuster_demi_diametres == Some(true) {
+            let n = sys.surfaces.len();
+            for (i, (s, &r)) in sys.surfaces.iter_mut().zip(&requis).enumerate() {
+                if !s.est_coupure() && r > 0.0 && (i + 1 < n || r > s.semi_diametre) {
+                    s.semi_diametre = (r * 1000.0).ceil() / 1000.0;
+                }
+            }
+        }
+        let surface = params.index_surface.unwrap_or(0);
+        let empreinte = crate::core::empreinte::calculer_empreinte(&sys, surface, 6).map(|e| {
+            serde_json::json!({
+                "surface": e.surface,
+                "semi_diametre_mm": e.semi_diametre_mm,
+                "rayon_utile_mm": e.rayon_utile_mm,
+                "rayon_requis_mm": e.rayon_requis_mm,
+                "nb_rayons": e.nb_rayons,
+                "nb_vignettes": e.nb_vignettes,
+                "points": if params.points == Some(true) { serde_json::to_value(&e.points).unwrap_or_default() } else { serde_json::Value::Null },
+            })
+        });
+        serde_json::json!({
+            "empreinte": empreinte.unwrap_or_else(|e| serde_json::json!({ "erreur": e })),
+            "demi_diametres_requis_mm": requis,
+            "demi_diametres_mm": sys.surfaces.iter().map(|s| s.semi_diametre).collect::<Vec<f64>>(),
+        })
+        .to_string()
     }
 
     /// Paramètres du système : objet, afocal, ouverture, champs, longueurs d'onde.
@@ -581,6 +761,7 @@ impl FreeOpticalMcpServer {
         if let Some(r) = p.longueur_onde_ref_nm {
             sys.longueur_onde_ref_nm = r;
         }
+        crate::core::solves::appliquer_solves(&mut sys);
         serde_json::json!({
             "distance_objet_mm": sys.distance_objet_mm,
             "afocal": sys.afocal,
@@ -973,6 +1154,52 @@ mod tests {
             .importer_catalogue_agf(Parameters(ImporterCatalogueParams { chemin: "/inexistant.agf".into() }))
             .await;
         assert!(erreur.contains("erreur"));
+    }
+
+    #[tokio::test]
+    async fn test_outils_mcp_v09_solves_ruptures_analyses_zemax() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        // Solve de mise au point : l'épaisseur suit un changement de rayon
+        let res = srv
+            .modifier_surface(Parameters(ModifierSurfaceParams {
+                index: 2,
+                parametres: SurfacePatchParams {
+                    solve_epaisseur: Some(crate::core::types::Solve::HauteurMarginale { hauteur_mm: 0.0, zone: 0.0 }),
+                    ..Default::default()
+                },
+            }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let bfl = json["paraxial"]["tirage_bfl_mm"].as_f64().unwrap();
+        assert!((json["surface"]["epaisseur"].as_f64().unwrap() - bfl).abs() < 1e-9, "{res}");
+        let res = srv
+            .modifier_surface(Parameters(ModifierSurfaceParams {
+                index: 0,
+                parametres: SurfacePatchParams { rayon: Some(50.0), ..Default::default() },
+            }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let sys = srv.systeme.lock().unwrap().clone();
+        assert!((sys.surfaces[2].epaisseur - json["paraxial"]["tirage_bfl_mm"].as_f64().unwrap()).abs() < 1e-9);
+        drop(sys);
+        // Rupture de repère par JSON
+        let schema = serde_json::from_str::<SurfacePatchParams>(r#"{"type":"COORDBRK","inclinaison_deg":[10,0],"inclinaison_z_deg":5}"#).unwrap();
+        assert_eq!(schema.inclinaison_z_deg, Some(5.0));
+        // Analyses
+        let e: serde_json::Value = serde_json::from_str(&srv.analyser_energie_encerclee(Parameters(AnalyseOndeParams::default())).await).unwrap();
+        assert!(e["r80_geometrique_um"].as_f64().unwrap() > 0.0 && e["diffraction"].is_array(), "{e}");
+        let c: serde_json::Value = serde_json::from_str(&srv.analyser_chromatisme().await).unwrap();
+        assert!(c["decalage_focal"]["etendue_um"].as_f64().unwrap() > 0.0 && c["couleur_laterale"]["ecart_um"].is_array(), "{c}");
+        let f: serde_json::Value = serde_json::from_str(
+            &srv.analyser_empreinte(Parameters(AnalyserEmpreinteParams { index_surface: Some(2), ajuster_demi_diametres: Some(true), points: None })).await,
+        )
+        .unwrap();
+        assert_eq!(f["empreinte"]["nb_vignettes"].as_u64(), Some(0), "{f}");
+        let requis = f["demi_diametres_requis_mm"][0].as_f64().unwrap();
+        assert!((f["demi_diametres_mm"][0].as_f64().unwrap() - requis).abs() < 1e-3);
+        // Import Zemax : erreur propre sur un fichier absent
+        let z = srv.importer_zemax(Parameters(ImporterTeloptikParams { chemin: "/inexistant.zmx".into() })).await;
+        assert!(z.contains("erreur"));
     }
 
     #[tokio::test]

@@ -21,7 +21,9 @@ use ratatui::{
 pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
     let sys = &app.systeme;
     let positions_z = sys.positions_z_sommets();
-    let (z_min_sys, z_max_sys) = sys.etendue_axiale();
+    let reperes = sys.reperes();
+    let [z_min_sys, z_max_sys, y_min_sys, y_max_sys] = sys.boite_englobante();
+    let axe_replie = sys.a_des_coupures().then(|| sys.points_axe());
     let max_sd = sys
         .surfaces
         .iter()
@@ -30,7 +32,8 @@ pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
 
     let z_min = z_min_sys - 18.0;
     let z_max = z_max_sys.max(z_min_sys + 20.0) + 8.0;
-    let y_lim = max_sd * 1.35;
+    let y_milieu = 0.5 * (y_min_sys + y_max_sys);
+    let y_lim = (max_sd * 1.35).max(0.6 * (y_max_sys - y_min_sys));
 
     // Pré-calcul des éventails de rayons méridiens (champ sur l'axe 0° et champ hors-axe éventuel)
     let rayons_axe = tracer_eventail_meridional(
@@ -54,16 +57,24 @@ pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
         .background_color(DOS_BG)
         .marker(Marker::Braille)
         .x_bounds([z_min, z_max])
-        .y_bounds([-y_lim, y_lim])
+        .y_bounds([y_milieu - y_lim, y_milieu + y_lim])
         .paint(move |ctx| {
-            // 1. Axe optique (Y = 0)
-            ctx.draw(&CanvasLine {
-                x1: z_min,
-                y1: 0.0,
-                x2: z_max,
-                y2: 0.0,
-                color: DOS_TEXT,
-            });
+            // 1. Axe optique (Y = 0), ou ligne brisée qui suit les ruptures de repère
+            if let Some(axe) = &axe_replie {
+                let mut prec = (z_min, 0.0);
+                for o in axe {
+                    ctx.draw(&CanvasLine { x1: prec.0, y1: prec.1, x2: o.z, y2: o.y, color: DOS_TEXT });
+                    prec = (o.z, o.y);
+                }
+            } else {
+                ctx.draw(&CanvasLine {
+                    x1: z_min,
+                    y1: 0.0,
+                    x2: z_max,
+                    y2: 0.0,
+                    color: DOS_TEXT,
+                });
+            }
 
             // 2. Rayons hors-axe (en vert phosphore si présents)
             if let Some(ref eventail_hors_axe) = rayons_champ {
@@ -102,6 +113,10 @@ pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
             // 4. Profils 2D des dioptres et fermeture des bords de lentilles
             let nb_pas_profil = 36;
             for (idx, (surf, &z_sommet)) in sys.surfaces.iter().zip(positions_z.iter()).enumerate() {
+                if surf.est_coupure() {
+                    continue;
+                }
+                let rep = reperes[idx];
                 let sd = surf.semi_diametre;
                 let mat = sys.catalogue.resoudre(&surf.verre);
                 let couleur_surf = if idx == app.ligne_selectionnee {
@@ -116,17 +131,17 @@ pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
                 for k in 0..=nb_pas_profil {
                     let y = -sd + 2.0 * sd * (k as f64) / (nb_pas_profil as f64);
                     if let Some(fleche) = surf.fleche(y.abs()) {
-                        let z = z_sommet + fleche;
+                        let g = rep.vers_global(0.0, y, fleche);
                         if let Some((zp, yp)) = prev_pt {
                             ctx.draw(&CanvasLine {
                                 x1: zp,
                                 y1: yp,
-                                x2: z,
-                                y2: y,
+                                x2: g.z,
+                                y2: g.y,
                                 color: couleur_surf,
                             });
                         }
-                        prev_pt = Some((z, y));
+                        prev_pt = Some((g.z, g.y));
                     }
                 }
 
@@ -137,22 +152,12 @@ pub fn dessiner_coupe_2d(f: &mut Frame, zone: Rect, app: &AppState) {
                     let z_suiv = positions_z[idx + 1];
                     let sd_suiv = surf_suiv.semi_diametre;
                     if let (Some(f1), Some(f2)) = (surf.fleche(sd), surf_suiv.fleche(sd_suiv)) {
-                        // Bord supérieur
-                        ctx.draw(&CanvasLine {
-                            x1: z_sommet + f1,
-                            y1: sd,
-                            x2: z_suiv + f2,
-                            y2: sd_suiv,
-                            color: DOS_WHITE,
-                        });
-                        // Bord inférieur
-                        ctx.draw(&CanvasLine {
-                            x1: z_sommet + f1,
-                            y1: -sd,
-                            x2: z_suiv + f2,
-                            y2: -sd_suiv,
-                            color: DOS_WHITE,
-                        });
+                        // Bords supérieur et inférieur
+                        for signe in [1.0, -1.0] {
+                            let a = rep.vers_global(0.0, signe * sd, f1);
+                            let b = reperes[idx + 1].vers_global(0.0, signe * sd_suiv, f2);
+                            ctx.draw(&CanvasLine { x1: a.z, y1: a.y, x2: b.z, y2: b.y, color: DOS_WHITE });
+                        }
 
                         // Si cette surface fait partie d'un Cube Séparateur, on trace la lame diagonale à 45°
                         let comm_up = surf.commentaire.to_uppercase();

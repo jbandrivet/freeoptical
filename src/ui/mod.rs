@@ -163,6 +163,9 @@ fn dessiner_zone_inferieure(f: &mut Frame, zone: Rect, app: &AppState) {
         ActiveView::CourbureChamp => ondes_view::dessiner_courbure_champ(f, interieur, app),
         ActiveView::Seidel => ondes_view::dessiner_seidel(f, interieur, app),
         ActiveView::Spectre => ondes_view::dessiner_spectre(f, interieur, app),
+        ActiveView::EnergieEncerclee => ondes_view::dessiner_energie(f, interieur, app),
+        ActiveView::Chromatique => ondes_view::dessiner_chromatique(f, interieur, app),
+        ActiveView::Empreinte => ondes_view::dessiner_empreinte(f, interieur, app),
     }
 }
 
@@ -348,6 +351,14 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
             app.menu_ouvert = Some(0);
             app.item_menu_selectionne = 0;
         }
+        KeyCode::F(13) => app.vue_active = ActiveView::EnergieEncerclee,
+        KeyCode::F(14) => app.vue_active = ActiveView::Chromatique,
+        KeyCode::F(15) => app.vue_active = ActiveView::Empreinte,
+        KeyCode::F(1) if modifiers.contains(KeyModifiers::SHIFT) => app.vue_active = ActiveView::EnergieEncerclee,
+        KeyCode::F(2) if modifiers.contains(KeyModifiers::SHIFT) => app.vue_active = ActiveView::Chromatique,
+        KeyCode::F(3) if modifiers.contains(KeyModifiers::SHIFT) => app.vue_active = ActiveView::Empreinte,
+        KeyCode::Char('[') if app.vue_active == ActiveView::Empreinte => app.ondes.surface_empreinte_suivante(&app.systeme, -1),
+        KeyCode::Char(']') if app.vue_active == ActiveView::Empreinte => app.ondes.surface_empreinte_suivante(&app.systeme, 1),
         KeyCode::F(1) | KeyCode::Char('1') => app.vue_active = ActiveView::Coupe2D,
         KeyCode::F(2) | KeyCode::Char('2') => app.vue_active = ActiveView::Filaire3D,
         KeyCode::F(3) | KeyCode::Char('3') => app.vue_active = ActiveView::SpotDiagram,

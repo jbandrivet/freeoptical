@@ -447,3 +447,181 @@ pub fn dessiner_spectre(f: &mut Frame, zone: Rect, app: &AppState) {
         zone,
     );
 }
+
+/// Courbe tracée en ligne dans un graphique
+fn serie<'a>(nom: String, couleur: Color, points: &'a [(f64, f64)]) -> Dataset<'a> {
+    Dataset::default()
+        .name(nom)
+        .marker(Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().fg(couleur))
+        .data(points)
+}
+
+/// Axe gradué en 5 étiquettes
+fn axe(titre: &str, a: f64, b: f64, decimales: usize) -> Axis<'static> {
+    Axis::default()
+        .title(titre.to_string())
+        .style(Style::default().fg(DOS_TEXT))
+        .bounds([a, b])
+        .labels((0..=4).map(|k| Span::raw(format!("{:.*}", decimales, a + (b - a) * k as f64 / 4.0))).collect::<Vec<_>>())
+}
+
+/// Énergie encerclée géométrique, par diffraction et d'Airy
+pub fn dessiner_energie(f: &mut Frame, zone: Rect, app: &AppState) {
+    let Some(resultat) = app.ondes.energie_calculee() else { return };
+    let e = match resultat {
+        Ok(e) => e,
+        Err(e) => return erreur(f, zone, e),
+    };
+    let parties = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(3), Constraint::Min(5)]).split(zone);
+    let unite = if app.systeme.afocal { "µrad" } else { "µm" };
+    let diff = |v: Option<f64>| v.map(|v| format!("{v:.3}")).unwrap_or_else(|| "—".into());
+    let lignes = vec![
+        aide_selection(app, false),
+        ligne(
+            tr!("50 % / 80 % géom. : ", "50% / 80% geom.: ", "50 % / 80 % geom.: "),
+            format!("{:.3} / {:.3} {unite}", e.r50_geo_um, e.r80_geo_um),
+            DOS_CYAN,
+        ),
+        ligne(
+            tr!("50 % / 80 % diffr. : ", "50% / 80% diffr.: ", "50 % / 80 % Beug.: "),
+            format!("{} / {} {unite}  (Airy {:.3} {unite})", diff(e.r50_diffraction_um), diff(e.r80_diffraction_um), e.rayon_airy_um),
+            DOS_GREEN,
+        ),
+    ];
+    f.render_widget(Paragraph::new(lignes), parties[0]);
+    let pts = |v: &[f64]| e.rayons_um.iter().copied().zip(v.iter().copied()).collect::<Vec<_>>();
+    let (geo, airy) = (pts(&e.geometrique), pts(&e.airy));
+    let diffraction = e.diffraction.as_deref().map(pts).unwrap_or_default();
+    let mut series = vec![
+        serie(tr!("Airy", "Airy", "Airy").into(), DOS_WHITE, &airy),
+        serie(tr!("géométrique", "geometric", "geometrisch").into(), DOS_CYAN, &geo),
+    ];
+    if !diffraction.is_empty() {
+        series.push(serie(tr!("diffraction", "diffraction", "Beugung").into(), DOS_GREEN, &diffraction));
+    }
+    let r_max = e.rayons_um.last().copied().unwrap_or(1.0);
+    let graphe = Chart::new(series)
+        .block(bloc_dos(tr!("ÉNERGIE ENCERCLÉE", "ENCIRCLED ENERGY", "EINGESCHLOSSENE ENERGIE"), false))
+        .x_axis(axe(unite, 0.0, r_max, 2))
+        .y_axis(axe("", 0.0, 1.0, 2));
+    f.render_widget(graphe, parties[1]);
+}
+
+/// Décalage focal chromatique et couleur latérale
+pub fn dessiner_chromatique(f: &mut Frame, zone: Rect, app: &AppState) {
+    let Some(r) = app.ondes.chromatique_calcule() else { return };
+    let colonnes = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(50), Constraint::Percentage(50)]).split(zone);
+    match &r.decalage {
+        Ok(d) => {
+            let pts: Vec<(f64, f64)> = d.longueurs_onde_nm.iter().copied().zip(d.decalage_um.iter().copied()).collect();
+            let (a, b) = (d.longueurs_onde_nm[0], *d.longueurs_onde_nm.last().unwrap_or(&700.0));
+            let m = d.decalage_um.iter().fold(d.profondeur_diffraction_um, |m, v| m.max(v.abs())) * 1.1;
+            let p = d.profondeur_diffraction_um;
+            let (haut, bas) = (vec![(a, p), (b, p)], vec![(a, -p), (b, -p)]);
+            let titre = trf!(
+                "DÉCALAGE FOCAL — étendue {:.1} µm, foyer ±{:.1} µm",
+                "FOCAL SHIFT — range {:.1} µm, focus ±{:.1} µm",
+                "FOKUSVERSCHIEBUNG — Bereich {:.1} µm, Fokus ±{:.1} µm",
+                d.etendue_um,
+                p
+            );
+            let graphe = Chart::new(vec![
+                serie("±2λN²".into(), DOS_WHITE, &haut),
+                serie(String::new(), DOS_WHITE, &bas),
+                serie("Δz (µm)".into(), DOS_CYAN, &pts),
+            ])
+            .block(bloc_dos(&titre, false))
+            .x_axis(axe("nm", a, b, 0))
+            .y_axis(axe("µm", -m, m, 1));
+            f.render_widget(graphe, colonnes[0]);
+        }
+        Err(e) => erreur(f, colonnes[0], e),
+    }
+    match &r.laterale {
+        Ok(c) => {
+            let courbes: Vec<(Vec<(f64, f64)>, f64)> = c
+                .ecart_um
+                .iter()
+                .zip(&c.longueurs_onde_nm)
+                .map(|(v, &l)| (c.fractions_champ.iter().zip(v).filter_map(|(&x, y)| y.map(|y| (x, y))).collect(), l))
+                .collect();
+            let m = c.ecart_um.iter().flatten().flatten().fold(c.rayon_airy_um, |m, v| m.max(v.abs())) * 1.1;
+            let airy = (vec![(0.0, c.rayon_airy_um), (1.0, c.rayon_airy_um)], vec![(0.0, -c.rayon_airy_um), (1.0, -c.rayon_airy_um)]);
+            let mut series = vec![serie("Airy".into(), DOS_WHITE, &airy.0), serie(String::new(), DOS_WHITE, &airy.1)];
+            for (i, (p, l)) in courbes.iter().enumerate() {
+                series.push(serie(format!("{l:.0} nm"), COULEURS_CHAMPS[i % COULEURS_CHAMPS.len()], p));
+            }
+            let titre = trf!(
+                "COULEUR LATÉRALE — écart max {:.2} µm",
+                "LATERAL COLOUR — max spread {:.2} µm",
+                "FARBQUERFEHLER — max. {:.2} µm",
+                c.ecart_max_um
+            );
+            let graphe = Chart::new(series)
+                .block(bloc_dos(&titre, false))
+                .x_axis(axe(tr!("champ", "field", "Feld"), 0.0, 1.0, 2))
+                .y_axis(axe("µm", -m, m, 2));
+            f.render_widget(graphe, colonnes[1]);
+        }
+        Err(e) => erreur(f, colonnes[1], e),
+    }
+}
+
+/// Empreinte des faisceaux : points d'impact dans le repère local de la surface
+pub fn dessiner_empreinte(f: &mut Frame, zone: Rect, app: &AppState) {
+    use ratatui::widgets::canvas::{Canvas, Circle, Points};
+    let Some(resultat) = app.ondes.empreinte_calculee() else { return };
+    let e = match resultat {
+        Ok(e) => e,
+        Err(e) => return erreur(f, zone, e),
+    };
+    let parties = Layout::default().direction(Direction::Vertical).constraints([Constraint::Length(2), Constraint::Min(5)]).split(zone);
+    let lignes = vec![
+        Line::from(Span::styled(
+            trf!(
+                "Surface #{} [ ]  —  demi-diamètre {:.3} mm, utilisé {:.3} mm, nécessaire {:.3} mm",
+                "Surface #{} [ ]  —  semi-diameter {:.3} mm, used {:.3} mm, needed {:.3} mm",
+                "Fläche #{} [ ]  —  Halbdurchmesser {:.3} mm, genutzt {:.3} mm, nötig {:.3} mm",
+                e.surface + 1,
+                e.semi_diametre_mm,
+                e.rayon_utile_mm,
+                e.rayon_requis_mm
+            ),
+            Style::default().fg(DOS_CYAN),
+        )),
+        ligne(tr!("Rayons arrêtés ici ou avant : ", "Rays stopped here or before: ", "Hier oder davor gestoppte Strahlen: "), format!("{} / {}", e.nb_vignettes, e.nb_rayons), if e.nb_vignettes > 0 { DOS_RED } else { DOS_GREEN }),
+    ];
+    f.render_widget(Paragraph::new(lignes), parties[0]);
+    let etendue = e.points.iter().map(|p| p.x_mm.abs().max(p.y_mm.abs())).fold(e.semi_diametre_mm, f64::max).max(1e-3) * 1.08;
+    // Cellules du terminal deux fois plus hautes que larges : on élargit l'axe X
+    let rapport = (parties[1].width as f64 / (2.0 * parties[1].height.max(1) as f64)).max(1.0);
+    let nb_champs = app.systeme.champs_deg.len().max(1);
+    let groupes: Vec<(Vec<(f64, f64)>, Color)> = (0..nb_champs)
+        .map(|c| {
+            (
+                e.points.iter().filter(|p| p.champ == c && !p.vignette).map(|p| (p.x_mm, p.y_mm)).collect(),
+                COULEURS_CHAMPS[c % COULEURS_CHAMPS.len()],
+            )
+        })
+        .collect();
+    let arretes: Vec<(f64, f64)> = e.points.iter().filter(|p| p.vignette).map(|p| (p.x_mm, p.y_mm)).collect();
+    let canevas = Canvas::default()
+        .block(bloc_dos(tr!("EMPREINTE (repère local, mm)", "FOOTPRINT (local frame, mm)", "FOOTPRINT (lokales System, mm)"), false))
+        .background_color(DOS_BG)
+        .marker(Marker::Braille)
+        .x_bounds([-etendue * rapport, etendue * rapport])
+        .y_bounds([-etendue, etendue])
+        .paint(move |ctx| {
+            ctx.draw(&Circle { x: 0.0, y: 0.0, radius: e.semi_diametre_mm, color: DOS_WHITE });
+            if e.rayon_obstruction_mm > 0.0 {
+                ctx.draw(&Circle { x: 0.0, y: 0.0, radius: e.rayon_obstruction_mm, color: DOS_TEXT });
+            }
+            for (pts, c) in &groupes {
+                ctx.draw(&Points { coords: pts, color: *c });
+            }
+            ctx.draw(&Points { coords: &arretes, color: DOS_RED });
+        });
+    f.render_widget(canevas, parties[1]);
+}

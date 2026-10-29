@@ -114,6 +114,19 @@ fn appliquer_vecteur_variables(
             }
         }
     }
+    // Les paramètres calculés (mise au point, reprises…) suivent les variables
+    crate::core::solves::appliquer_solves(systeme);
+}
+
+/// Vrai si le paramètre est imposé par un solve (il ne peut donc pas être variable)
+fn est_impose_par_solve(systeme: &OpticalSystem, v: &OptimizationVariable) -> bool {
+    let Some(s) = systeme.surfaces.get(v.index_surface) else { return false };
+    match v.parametre.to_lowercase().as_str() {
+        "rayon" | "r" | "courbure" => s.solve_rayon.is_some(),
+        "epaisseur" | "t" | "thickness" => s.solve_epaisseur.is_some(),
+        "conique" | "k" | "conic" => s.solve_conique.is_some(),
+        _ => false,
+    }
 }
 
 /// Index du coefficient asphérique ("a4" → 0, "a6" → 1, "a8" → 2, "a10" → 3)
@@ -365,6 +378,9 @@ pub fn optimiser_systeme_dls(
     } else {
         variables.to_vec()
     };
+    crate::core::solves::appliquer_solves(systeme);
+    let vars_effectives: Vec<OptimizationVariable> =
+        vars_effectives.into_iter().filter(|v| !est_impose_par_solve(systeme, v)).collect();
 
     let cibles_effectives: Vec<OptimizationTarget> = if cibles.is_empty() {
         vec![OptimizationTarget {

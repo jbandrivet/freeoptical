@@ -66,10 +66,14 @@ fn dessiner_tableau_lde(f: &mut Frame, zone: Rect, app: &AppState) {
             format!("{:>2}    ", idx + 1)
         };
 
-        let rayon_str = if !surf.rayon.is_finite() || surf.rayon.abs() > 1e8 {
-            tr!("INFINI", "INFINITY", "UNENDLICH").to_string()
+        // « S » : valeur calculée par un solve ou une reprise
+        let marque = |s: &Option<crate::core::types::Solve>| if s.is_some() { " S" } else { "" };
+        let rayon_str = if surf.est_coupure() {
+            "—".to_string()
+        } else if !surf.rayon.is_finite() || surf.rayon.abs() > 1e8 {
+            format!("{}{}", tr!("INFINI", "INFINITY", "UNENDLICH"), marque(&surf.solve_rayon))
         } else {
-            format!("{:>10.3}", surf.rayon)
+            format!("{:>10.3}{}", surf.rayon, marque(&surf.solve_rayon))
         };
 
         let valeurs = [
@@ -80,10 +84,10 @@ fn dessiner_tableau_lde(f: &mut Frame, zone: Rect, app: &AppState) {
                 surf.commentaire.clone()
             },
             rayon_str,
-            format!("{:>10.3}", surf.epaisseur),
-            surf.verre.clone(),
+            format!("{:>10.3}{}", surf.epaisseur, marque(&surf.solve_epaisseur)),
+            if surf.est_coupure() { "—".to_string() } else { surf.verre.clone() },
             format!("{:>10.3}", surf.semi_diametre),
-            format!("{:>8.3}", surf.conique),
+            if surf.est_coupure() { "—".to_string() } else { format!("{:>8.3}{}", surf.conique, marque(&surf.solve_conique)) },
         ];
 
         let style_base = if est_ligne_active {

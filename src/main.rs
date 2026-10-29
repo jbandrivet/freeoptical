@@ -92,9 +92,9 @@ fn commande_traduite() -> clap::Command {
         })
         .mut_arg("fichier", |a| {
             a.help(tr!(
-                "Fichier système à charger : .json, ou .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)",
-                "System file to load: .json, or .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)",
-                "Zu ladende Systemdatei: .json oder .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)"
+                "Fichier système à charger : .json, .zmx (Zemax), ou .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)",
+                "System file to load: .json, .zmx (Zemax), or .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)",
+                "Zu ladende Systemdatei: .json, .zmx (Zemax) oder .TDS / .RLD / .DES (TDESIGN, LENSDES, RAYTRACE)"
             ))
         })
         .mut_arg("catalogue", |a| {
@@ -140,7 +140,13 @@ async fn main() -> Result<()> {
 
     let systeme = if let Some(chemin) = &args.fichier {
         let chemin = std::path::Path::new(chemin);
-        if core::teloptik::est_fichier_teloptik(chemin) {
+        if core::zemax::est_fichier_zemax(chemin) {
+            let import = core::zemax::importer_fichier_zemax(chemin).map_err(anyhow::Error::msg)?;
+            for avertissement in &import.avertissements {
+                eprintln!("Import {} : {}", chemin.display(), avertissement);
+            }
+            import.systeme
+        } else if core::teloptik::est_fichier_teloptik(chemin) {
             let import =
                 core::teloptik::importer_fichier_teloptik(chemin).map_err(anyhow::Error::msg)?;
             // stderr : stdout est réservé au protocole MCP
