@@ -22,7 +22,7 @@ pub struct TexturesOndes {
 }
 
 /// Palette continue bleu → cyan → vert → jaune → rouge, `t` dans [0, 1]
-fn palette(t: f64) -> Color32 {
+pub(super) fn palette(t: f64) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let (r, g, b) = if t < 0.25 {
         (0.0, 4.0 * t, 1.0)

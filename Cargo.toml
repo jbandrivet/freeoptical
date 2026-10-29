@@ -1,6 +1,6 @@
 [package]
 name = "freeoptical"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 authors = ["Jean-Baptiste"]
 description = "Logiciel open-source de conception et de simulation optique séquentielle (interface graphique, TUI et serveur MCP)"
@@ -33,3 +33,4 @@ thiserror = "2.0"
 # Mise à jour en ligne (releases GitHub)
 ureq = "3.5"
 rustfft = "6"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp", "tiff"] }

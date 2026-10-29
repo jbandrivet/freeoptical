@@ -231,6 +231,7 @@ pub fn items_menu(menu_idx: usize) -> Vec<&'static str> {
             tr!("10. Courbure de champ & distorsion (0)", "10. Field curvature & distortion (0)", "10. Bildfeldwölbung & Verzeichnung (0)"),
             tr!("11. Coefficients de Seidel", "11. Seidel coefficients", "11. Seidel-Koeffizienten"),
             tr!("12. Spectrographe (dispersion, résolution)", "12. Spectrograph (dispersion, resolution)", "12. Spektrograph (Dispersion, Auflösung)"),
+            tr!("13. Interféromètre de Bath (B)", "13. Bath interferometer (B)", "13. Bath-Interferometer (B)"),
         ],
         3 => vec![
             tr!(
@@ -272,6 +273,8 @@ pub struct AppState {
     pub doit_quitter: bool,
     /// Champ, longueur d'onde et résultats des analyses front d'onde / PSF / FTM
     pub ondes: AnalysesOndes,
+    /// Vue de l'interféromètre de Bath (remplace la vue active quand elle est ouverte)
+    pub bath: Option<crate::ui::bath_view::BathTui>,
 }
 
 impl AppState {
@@ -301,7 +304,16 @@ impl AppState {
             statut_message,
             doit_quitter: false,
             ondes: AnalysesOndes::default(),
+            bath: None,
         }
+    }
+
+    /// Ouvre ou ferme la vue de l'interféromètre de Bath (miroir du système, sinon 200 mm F/6)
+    pub fn basculer_bath(&mut self) {
+        self.bath = match self.bath {
+            Some(_) => None,
+            None => Some(crate::ui::bath_view::BathTui::depuis_systeme(&self.systeme)),
+        };
     }
 
     /// Recalcule immédiatement les données paraxiales, le Spot Diagram et l'aberration sphérique
@@ -578,6 +590,10 @@ impl AppState {
 
     /// Calcule les analyses ondulatoires nécessaires à la vue active (avant l'affichage)
     pub fn preparer_vue(&mut self) {
+        if let Some(bath) = self.bath.as_mut() {
+            bath.preparer();
+            return;
+        }
         match self.vue_active {
             ActiveView::FrontOnde => {
                 self.ondes.front_onde(&self.systeme);
@@ -607,6 +623,10 @@ impl AppState {
     /// Exécute une action du menu déroulant supérieur
     pub fn executer_action_menu(&mut self, menu_idx: usize, item_idx: usize) {
         self.menu_ouvert = None;
+        // Choisir une autre vue ferme la vue Bath
+        if menu_idx == 2 && item_idx != 12 {
+            self.bath = None;
+        }
         match (menu_idx, item_idx) {
             // Menu Fichier
             (0, 0) => {
@@ -676,6 +696,11 @@ impl AppState {
             (2, 9) => self.vue_active = ActiveView::CourbureChamp,
             (2, 10) => self.vue_active = ActiveView::Seidel,
             (2, 11) => self.vue_active = ActiveView::Spectre,
+            (2, 12) => {
+                if self.bath.is_none() {
+                    self.basculer_bath();
+                }
+            }
             // Menu Outils
             (3, 0) => self.lancer_optimisation_rapide(),
             (3, 1) => self.mise_au_point_paraxiale(),

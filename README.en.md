@@ -9,7 +9,7 @@
 **Free sequential optical design and simulation software for Linux: graphical interface, terminal interface and MCP server.**
 
 FreeOptical lets you design any optical system (objective, refractor, mirror telescope, test setup…) surface by surface, then analyse and optimize it. It is written in **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) and combines:
-1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces (folded systems), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, and Damped Least Squares optimization over all fields and colours.
+1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces (folded systems), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, and Damped Least Squares optimization over all fields and colours; mirror testing with the Bath interferometer (simulation, reduction, analysis of interferogram photos).
 2. **A graphical interface and a terminal interface (`--tui`) in English, French or German**: Lens Data Editor (LDE), 2D cross section with ray trace, rotatable 3D view, spot diagram, LSA, glass catalogue, wavefront, PSF and MTF. Start from an empty system (`File` → `New empty system`) or from one of the bundled examples.
 3. **A built-in Model Context Protocol (MCP) server** letting an AI agent design, simulate and optimize optical systems.
 
@@ -53,6 +53,7 @@ freeoptical --langue en
 - **`F7` / `7`**: view 7 — diffraction point spread function (PSF)
 - **`F8` / `8`**: view 8 — tangential and sagittal MTF of all fields
 - **`9`**: ray fans (transverse aberrations); **`0`**: field curvature and distortion; Seidel coefficients from the `Analysis` menu
+- **`B`**: Bath interferometer for the system's mirror (`X`/`x`, `Y`/`y`: tilt, `D`/`d`: defocus, `F`: straight fringes, `E`/`e`: separation, `K`/`k` and `V`/`v`: actual and target conics, `A`: astigmatism, `Esc`: close)
 - **`C`** / **`W`**: next field / next wavelength for the analysis views
 - **`I` / `Ins`**: insert a surface before the selected row
 - **`A`**: add a surface before the image plane
@@ -97,6 +98,13 @@ Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field a
 - **MTF**: modulus of the Fourier transform of the PSF, tangential and sagittal for each field, with the diffraction limit of the pupil.
 - Checked by the tests: perfect paraboloid (Strehl 1, MTF equal to the circular pupil formula), defocus (exact sinc² Strehl), spherical aberration of a spherical mirror and coma of a paraboloid matching the third-order formulas, PSF centroid equal to the spot diagram centroid.
 
+#### Bath interferometer (testing mirrors at the centre of curvature)
+- `Tools` → `Bath interferometer` (key `B` in the TUI). **Simulation**: mirror (diameter, radius of curvature, actual and target conic, obstruction), set-up (wavelength, source – reference separation and its direction), adjustments in fringes (X/Y tilt, defocus; "straightest fringes" button) and surface errors (Zernike, zone, turned-down or turned-up edge). Paths are computed exactly (`|SM| + |MQ|` on the exact conic sag): the Bath astigmatism caused by the separation `s` (s²D²/16R³ peak-to-valley) appears by itself.
+- **Reduction**: the map is compared with that of the perfect mirror of the target conic in the same set-up (spherical aberration at the centre of curvature and Bath astigmatism subtracted), piston, tilts and defocus removed (astigmatism on request): measured conic, wavefront peak-to-valley and RMS (at the laser wavelength and at 550 nm) and surface (nm), Strehl at 550 nm, error map and Zernike of the deviation.
+- **Photo analysis** (PNG, JPEG, BMP, TIFF, which can be dropped onto the window): the mirror disc is found automatically (adjustable by hand or with the mouse), the wavefront is extracted with Takeda's method (FFT, Gerchberg extrapolation, quality-guided unwrapping, local refinement then global fit of the image model on 37 Zernike terms) and reduced as above. About ten to twenty tilt fringes are needed, with focus adjusted for fringes as straight as possible. A single photo cannot tell a bump from a hollow: the sign is chosen automatically (closest to the target conic) or forced.
+- Checked by the tests: sphere without separation = null fringe, exact fringe adjustments, Bath astigmatism and paraboloid spherical aberration matching the formulas, conic and errors recovered; on simulated photos (noise, Gaussian illumination, central obstruction), conic recovered within ±0.005 and RMS within ±0.003 λ, disc located to better than one pixel.
+- The example `File` → `Load Bath Interferometer` is the matching sequential set-up: ideal Bath lens (its aberrations cancel in the real set-up) and mirror as the pupil; its wavefront (F6) shows the mirror's departure from the sphere.
+
 #### Importing TDESIGN, LENSDES and RAYTRACE files
 FreeOptical reads the design files of the programs from the book *Telescope Optics: Evaluation and Design* (H. G. J. Rutten and M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, mirror and catadioptric telescopes), `.RLD` (LENSDES, refractor objectives) and `.DES` (RAYTRACE). `File` menu → `Import TDESIGN / LENSDES / RAYTRACE`, `--fichier` option, or `importer_teloptik` MCP tool.
 - Imported: spheres, conics, aspheres (r² to r¹⁰ coefficients), Schmidt plates defined by their relative power and neutral zone (third-order profile), mirrors (sign change of the index, including inside the glass of a Mangin), axial shifts, N1/N2/N3 indices converted to `nd:Vd` glasses, limiting diameters when vignetting was enabled in RAYTRACE.
@@ -132,6 +140,8 @@ freeoptical --mcp
 - `importer_catalogue_agf(chemin)`: imports a Zemax `.agf` glass catalogue.
 - `definir_systeme(...)`: object (infinity or distance), afocal, aperture, fields, wavelengths.
 - `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: positions, dispersion, spot, slit image and resolution of a spectrograph.
+- `simuler_bath(parametres, chemin_png)`: interferogram of a mirror at its centre of curvature and its reduction (measured conic, PV/RMS, Strehl, Zernike), optional PNG.
+- `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)`: analysis and reduction of a Bath interferogram photo.
 - `modifier_surface` also accepts `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` and `reseau_ordre`; `optimiser_systeme` accepts the variables `a4` to `a10` and the targets `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---

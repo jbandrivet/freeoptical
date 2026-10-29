@@ -9,7 +9,7 @@
 **Freie Software für sequentielles Optikdesign und Simulation unter Linux: grafische Oberfläche, Terminal-Oberfläche und MCP-Server.**
 
 Mit FreeOptical lässt sich jedes optische System (Objektiv, Refraktor, Spiegelteleskop, Prüfaufbau…) Fläche für Fläche entwerfen, analysieren und optimieren. Es ist in **Rust** geschrieben (`egui`, `ratatui`, `nalgebra`, `rmcp`) und vereint:
-1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, gekippte und dezentrierte Flächen (gefaltete Systeme), zentrale Obstruktionen, Beugungsgitter, echte Gläser (Sellmeier-Formeln, Zemax-Kataloge `.agf`: Schott, Ohara, CDGM…), polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF, Strahlfächer, Bildfeldwölbung, Verzeichnung, Seidel-Koeffizienten sowie Optimierung nach Damped Least Squares über alle Felder und Farben.
+1. **Eine sequentielle 3D-Strahlverfolgung**: paraxiale ABCD-Rechnung, vektorielles Brechungsgesetz, plane, sphärische, konische und gerade asphärische Flächen, Spiegel, gekippte und dezentrierte Flächen (gefaltete Systeme), zentrale Obstruktionen, Beugungsgitter, echte Gläser (Sellmeier-Formeln, Zemax-Kataloge `.agf`: Schott, Ohara, CDGM…), polychromatisches Spotdiagramm, longitudinale sphärische Aberration, optische Wegdifferenz (OPD) und Wellenfront mit Zernike-Polynomen, Strehl-Verhältnis, Beugungs-PSF und MTF, Strahlfächer, Bildfeldwölbung, Verzeichnung, Seidel-Koeffizienten sowie Optimierung nach Damped Least Squares über alle Felder und Farben; Spiegelprüfung mit dem Bath-Interferometer (Simulation, Auswertung, Analyse von Interferogramm-Fotos).
 2. **Eine grafische Oberfläche und eine Terminal-Oberfläche (`--tui`) auf Deutsch, Englisch oder Französisch**: Linsendaten-Editor (LDE), 2D-Schnitt mit Strahlverfolgung, drehbare 3D-Ansicht, Spotdiagramm, LSA, Glaskatalog, Wellenfront, PSF und MTF. Man beginnt mit einem leeren System (`Datei` → `Neues leeres System`) oder mit einem der mitgelieferten Beispiele.
 3. **Einen eingebauten Model-Context-Protocol-Server (MCP)**, mit dem ein KI-Agent optische Systeme entwerfen, simulieren und optimieren kann.
 
@@ -53,6 +53,7 @@ freeoptical --langue de
 - **`F7` / `7`**: Ansicht 7 — Beugungs-Punktbildfunktion (PSF)
 - **`F8` / `8`**: Ansicht 8 — tangentiale und sagittale MTF aller Felder
 - **`9`**: Strahlfächer (Queraberrationen); **`0`**: Bildfeldwölbung und Verzeichnung; Seidel-Koeffizienten über das Menü `Analyse`
+- **`B`**: Bath-Interferometer für den Spiegel des Systems (`X`/`x`, `Y`/`y`: Kippung, `D`/`d`: Defokus, `F`: gerade Streifen, `E`/`e`: Abstand, `K`/`k` und `V`/`v`: reale und Ziel-Konik, `A`: Astigmatismus, `Esc`: schließen)
 - **`C`** / **`W`**: nächstes Feld / nächste Wellenlänge für die Analyseansichten
 - **`I` / `Einfg`**: Fläche vor der ausgewählten Zeile einfügen
 - **`A`**: Fläche vor der Bildebene hinzufügen
@@ -97,6 +98,13 @@ Die Ansichten `F6`, `F7` und `F8` (grafisches Fenster und TUI) gelten für das g
 - **MTF**: Betrag der Fourier-Transformierten der PSF, tangential und sagittal für jedes Feld, mit der Beugungsgrenze der Pupille.
 - Durch Tests geprüft: perfekter Paraboloid (Strehl 1, MTF gleich der Formel der Kreispupille), Defokus (exakter sinc²-Strehl), sphärische Aberration eines Kugelspiegels und Koma eines Paraboloids gemäß den Formeln dritter Ordnung, Schwerpunkt der PSF gleich dem des Spotdiagramms.
 
+#### Bath-Interferometer (Spiegelprüfung im Krümmungsmittelpunkt)
+- `Werkzeuge` → `Bath-Interferometer` (Taste `B` in der TUI). **Simulation**: Spiegel (Durchmesser, Krümmungsradius, reale und Ziel-Konik, Obstruktion), Aufbau (Wellenlänge, Abstand Quelle – Referenz und seine Richtung), Justierung in Streifen (Kippung X/Y, Defokus; Knopf „geradeste Streifen“) und Oberflächenfehler (Zernike, Zone, abfallender oder aufgeworfener Rand). Die Wege werden exakt berechnet (`|SM| + |MQ|` auf der exakten Pfeilhöhe des Kegelschnitts): der Bath-Astigmatismus durch den Abstand `s` (s²D²/16R³ Spitze-Tal) entsteht von selbst.
+- **Auswertung**: die Karte wird mit der des perfekten Spiegels der Ziel-Konik im selben Aufbau verglichen (sphärische Aberration im Krümmungsmittelpunkt und Bath-Astigmatismus abgezogen), Kolben, Kippungen und Defokus entfernt (Astigmatismus auf Wunsch): gemessene Konik, Spitze-Tal und RMS der Wellenfront (bei der Laserwellenlänge und bei 550 nm) und der Oberfläche (nm), Strehl bei 550 nm, Fehlerkarte und Zernike der Abweichung.
+- **Fotoauswertung** (PNG, JPEG, BMP, TIFF, auch per Ziehen auf das Fenster): die Spiegelscheibe wird automatisch gefunden (von Hand oder mit der Maus einstellbar), die Wellenfront mit der Methode von Takeda gewonnen (FFT, Gerchberg-Extrapolation, qualitätsgeführte Phasenentfaltung, lokale Verfeinerung und globale Anpassung des Bildmodells mit 37 Zernike-Termen) und wie oben ausgewertet. Nötig sind etwa zehn bis zwanzig Kippstreifen, Fokus für möglichst gerade Streifen eingestellt. Ein einzelnes Foto unterscheidet Buckel und Mulde nicht: das Vorzeichen wird automatisch gewählt (am nächsten an der Ziel-Konik) oder vorgegeben.
+- Durch Tests geprüft: Kugel ohne Abstand = Nullstreifen, exakte Streifenjustierung, Bath-Astigmatismus und sphärische Aberration der Parabel gemäß den Formeln, Konik und Fehler wiedergefunden; auf simulierten Fotos (Rauschen, gaußsche Ausleuchtung, zentrale Obstruktion) Konik auf ±0,005 und RMS auf ±0,003 λ genau, Scheibe auf besser als ein Pixel gefunden.
+- Das Beispiel `Datei` → `Bath-Interferometer laden` ist der entsprechende sequentielle Aufbau: ideale Bath-Linse (ihre Aberrationen heben sich im echten Aufbau auf) und der Spiegel als Pupille; seine Wellenfront (F6) zeigt die Abweichung des Spiegels von der Kugel.
+
 #### Import von TDESIGN-, LENSDES- und RAYTRACE-Dateien
 FreeOptical liest die Designdateien der Programme aus dem Buch *Telescope Optics: Evaluation and Design* (H. G. J. Rutten und M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, Spiegel- und katadioptrische Teleskope), `.RLD` (LENSDES, Refraktorobjektive) und `.DES` (RAYTRACE). Menü `Datei` → `TDESIGN / LENSDES / RAYTRACE importieren`, Option `--fichier` oder MCP-Werkzeug `importer_teloptik`.
 - Übernommen werden: Sphären, Kegelschnitte, Asphären (Koeffizienten r² bis r¹⁰), Schmidtplatten aus relativer Stärke und neutraler Zone (Profil dritter Ordnung), Spiegel (Vorzeichenwechsel des Index, auch im Glas eines Mangin-Spiegels), axiale Verschiebungen, Indizes N1/N2/N3 als Gläser `nd:Vd`, Grenzdurchmesser, wenn in RAYTRACE die Vignettierung aktiv war.
@@ -132,6 +140,8 @@ freeoptical --mcp
 - `importer_catalogue_agf(chemin)`: importiert einen Zemax-Glaskatalog `.agf`.
 - `definir_systeme(...)`: Objekt (unendlich oder Abstand), afokal, Öffnung, Felder, Wellenlängen.
 - `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: Positionen, Dispersion, Spot, Spaltbild und Auflösung eines Spektrographen.
+- `simuler_bath(parametres, chemin_png)`: Interferogramm eines Spiegels im Krümmungsmittelpunkt und seine Auswertung (gemessene Konik, PV/RMS, Strehl, Zernike), PNG optional.
+- `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)`: Auswertung des Fotos eines Bath-Interferogramms.
 - `modifier_surface` akzeptiert auch `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` und `reseau_ordre`; `optimiser_systeme` akzeptiert die Variablen `a4` bis `a10` und die Ziele `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---

@@ -298,6 +298,48 @@ pub fn opd_rayon(
 // Carte de front d'onde et Zernike
 // ---------------------------------------------------------------------------------------------
 
+/// Ajustement par moindres carrés des 37 polynômes de Zernike (Noll) sur des points `(px, py, w)`
+/// du disque unité ; retourne les coefficients et le résidu quadratique moyen
+pub fn ajuster_zernike(points: &[(f64, f64, f64)]) -> Result<(Vec<f64>, f64), String> {
+    if points.len() < NB_ZERNIKE + 1 {
+        return Err(tr!(
+            "trop peu de points pour ajuster les polynômes de Zernike",
+            "too few points to fit the Zernike polynomials",
+            "zu wenige Punkte für die Anpassung der Zernike-Polynome"
+        )
+        .to_string());
+    }
+    // Équations normales (37 × 37), résolues par SVD : rapide même sur des dizaines de milliers
+    // de points, et les polynômes de Zernike sont presque orthogonaux sur le disque
+    let mut ata = DMatrix::<f64>::zeros(NB_ZERNIKE, NB_ZERNIKE);
+    let mut atb = DVector::<f64>::zeros(NB_ZERNIKE);
+    let mut ligne = [0.0; NB_ZERNIKE];
+    let mut btb = 0.0;
+    for &(px, py, w) in points {
+        let (rho, theta) = (px.hypot(py), py.atan2(px));
+        for (j, v) in ligne.iter_mut().enumerate() {
+            *v = zernike(j + 1, rho, theta);
+        }
+        for u in 0..NB_ZERNIKE {
+            atb[u] += ligne[u] * w;
+            for v in u..NB_ZERNIKE {
+                ata[(u, v)] += ligne[u] * ligne[v];
+            }
+        }
+        btb += w * w;
+    }
+    for u in 0..NB_ZERNIKE {
+        for v in 0..u {
+            ata[(u, v)] = ata[(v, u)];
+        }
+    }
+    let coefficients = ata.clone().svd(true, true).solve(&atb, 1e-12).map_err(|e| e.to_string())?;
+    // Résidu : |b − Ac|² = bᵀb − 2cᵀAᵀb + cᵀAᵀAc
+    let r2 = btb - 2.0 * coefficients.dot(&atb) + coefficients.dot(&(&ata * &coefficients));
+    let residu = (r2.max(0.0) / points.len() as f64).sqrt();
+    Ok((coefficients.iter().copied().collect(), residu))
+}
+
 /// Carte de front d'onde sur la pupille et sa décomposition en polynômes de Zernike
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CarteFrontOnde {
@@ -366,18 +408,7 @@ pub fn calculer_front_onde(
         .iter()
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v.2), b.max(v.2)));
 
-    // Ajustement de Zernike par moindres carrés
-    let a = DMatrix::from_fn(valides.len(), NB_ZERNIKE, |r, c| {
-        let (px, py, _) = valides[r];
-        zernike(c + 1, px.hypot(py), py.atan2(px))
-    });
-    let b = DVector::from_iterator(valides.len(), valides.iter().map(|v| v.2));
-    let coefficients = a
-        .clone()
-        .svd(true, true)
-        .solve(&b, 1e-12)
-        .map_err(|e| e.to_string())?;
-    let residu = ((&a * &coefficients - &b).norm_squared() / nb).sqrt();
+    let (coefficients, residu) = ajuster_zernike(&valides)?;
 
     Ok(CarteFrontOnde {
         taille,
@@ -387,7 +418,7 @@ pub fn calculer_front_onde(
         pv_ondes: maxi - mini,
         rms_ondes: rms,
         strehl_marechal: (-(2.0 * std::f64::consts::PI * rms).powi(2)).exp(),
-        zernike_ondes: coefficients.iter().copied().collect(),
+        zernike_ondes: coefficients,
         residu_zernike_ondes: residu,
         nb_points: valides.len(),
     })

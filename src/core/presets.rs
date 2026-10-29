@@ -3,37 +3,49 @@
 use crate::core::glass::LAMBDA_D_NM;
 use crate::core::types::{ApertureSpec, OpticalSystem, Surface, SurfaceType, Wavelength};
 
-/// Montage de Bath : laser He-Ne collimaté, cube séparateur, lentille de Bath focalisant le faisceau
-/// au centre de courbure du miroir sous test (parabolique F/3), retour au foyer après réflexion.
-/// Le spot diagram au plan image montre l'aberration du miroir testé à son centre de courbure.
+/// Miroir parabolique Ø52 R300 au centre de courbure, comme dans un interféromètre de Bath :
+/// laser He-Ne collimaté, cube séparateur, lentille de Bath (idéale) focalisant le faisceau au
+/// centre de courbure, retour au même point après réflexion. La lentille est idéale parce que,
+/// dans le vrai montage, ondes test et référence la traversent toutes deux sur le même cône : ses
+/// aberrations se compensent. Le front d'onde (F6) montre donc l'écart du miroir à la sphère, deux
+/// fois l'écart de surface ; l'interférogramme lui-même (écart source/référence, franges,
+/// réduction, analyse d'une photo) est dans Outils > Interféromètre de Bath.
 pub fn creer_interferometre_bath() -> OpticalSystem {
+    const FOCALE_LENTILLE: f64 = 10.0;
+    const RAYON_MIROIR: f64 = 300.0;
+    const DEMI_DIAMETRE: f64 = 26.0;
     let mut s0 = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 12.7, "BK7", 6.35);
     s0.commentaire = tr!("Entrée Cube Séparateur 50/50 (BK7)", "Beam Splitter Cube 50/50 Entrance (BK7)", "Strahlteiler-Cube 50/50 Eintritt (BK7)").to_string();
-    s0.est_diaphragme = true;
 
     let mut s1 = Surface::nouvelle(SurfaceType::Plane, f64::INFINITY, 8.0, "AIR", 6.35);
     s1.commentaire = tr!("Sortie Cube Séparateur", "Beam Splitter Cube Exit", "Strahlteiler-Cube Austritt").to_string();
 
-    let mut s2 = Surface::nouvelle(SurfaceType::Spherique, 12.0, 3.0, "BK7", 4.0);
-    s2.commentaire = tr!("Entrée Lentille de Bath (BK7)", "Bath Lens Entrance (BK7)", "Bath-Linse Eintritt (BK7)").to_string();
+    // Foyer de la lentille au centre de courbure du miroir
+    let mut s2 = Surface::nouvelle(SurfaceType::Ideale, f64::INFINITY, FOCALE_LENTILLE + RAYON_MIROIR, "AIR", 2.0);
+    s2.focale_ideale_mm = FOCALE_LENTILLE;
+    s2.commentaire = tr!("Lentille de Bath f = 10 mm (idéale)", "Bath Lens f = 10 mm (ideal)", "Bath-Linse f = 10 mm (ideal)").to_string();
 
-    let mut s3 = Surface::nouvelle(SurfaceType::Spherique, -12.0, 311.1309, "AIR", 4.0);
-    s3.commentaire = tr!("Sortie Lentille de Bath", "Bath Lens Exit", "Bath-Linse Austritt").to_string();
+    let mut s3 = Surface::nouvelle(SurfaceType::Conique, -RAYON_MIROIR, -RAYON_MIROIR, "MIROIR", DEMI_DIAMETRE);
+    s3.commentaire = tr!("Miroir Sous Test Ø52 R300 (parabolique)", "Mirror Under Test Ø52 R300 (parabolic)", "Prüfspiegel Ø52 R300 (parabolisch)").to_string();
+    s3.conique = -1.0;
+    // Le miroir est la pupille : c'est lui qu'on observe, et la sphère de référence du front
+    // d'onde passe par lui (rayon R) au lieu d'une pupille de sortie proche du foyer
+    s3.est_diaphragme = true;
 
-    let mut s4 = Surface::nouvelle(SurfaceType::Conique, -300.0, -300.0, "MIROIR", 26.0);
-    s4.commentaire = tr!("Miroir Sous Test Ø52 R300 (parabolique)", "Mirror Under Test Ø52 R300 (parabolic)", "Prüfspiegel Ø52 R300 (parabolisch)").to_string();
-    s4.conique = -1.0;
+    let mut s4 = Surface::plan_image(3.0);
+    s4.commentaire = tr!("Foyer de Retour (Centre de Courbure)", "Return Focus (Centre of Curvature)", "Rückkehrfokus (Krümmungsmittelpunkt)").to_string();
 
-    let mut s5 = Surface::plan_image(3.0);
-    s5.commentaire = tr!("Foyer de Retour (Centre de Courbure)", "Return Focus (Centre of Curvature)", "Rückkehrfokus (Krümmungsmittelpunkt)").to_string();
+    // Faisceau élargi jusqu'au bord du miroir (un peu en deçà, pour ne pas vignetter)
+    let fleche_bord = DEMI_DIAMETRE * DEMI_DIAMETRE / (2.0 * RAYON_MIROIR);
+    let pupille = 2.0 * FOCALE_LENTILLE * DEMI_DIAMETRE / (RAYON_MIROIR - fleche_bord) * 0.999;
 
     OpticalSystem {
         nom: tr!("Interféromètre de Bath (Laser He-Ne 632.8 nm)", "Bath Interferometer (He-Ne Laser 632.8 nm)", "Bath-Interferometer (He-Ne-Laser 632.8 nm)").to_string(),
         longueur_onde_ref_nm: 632.8,
         longueurs_onde: vec![Wavelength::new(632.8, 1.0, "He-Ne (632.8 nm)")],
-        ouverture: ApertureSpec::PupilleEntreeMm(1.9),
+        ouverture: ApertureSpec::PupilleEntreeMm(pupille),
         champs_deg: vec![(0.0, 0.0)],
-        surfaces: vec![s0, s1, s2, s3, s4, s5],
+        surfaces: vec![s0, s1, s2, s3, s4],
         catalogue: Default::default(),
         distance_objet_mm: None,
         afocal: false,
@@ -175,13 +187,21 @@ mod tests {
         let singlet = creer_singlet_aspherique();
         assert!(calculer_spot_diagram(&singlet, (0.0, 0.0), 4).rayon_rms_um < 3.0);
 
-        // Bath : aucun rayon perdu ; un miroir sphérique revient en un point au centre de courbure
+        // Bath : aucun rayon perdu, le miroir est couvert jusqu'au bord ; un miroir sphérique
+        // donne une teinte plate, la parabole la sphérique attendue au centre de courbure
         let mut bath = creer_interferometre_bath();
         let spot = calculer_spot_diagram(&bath, (0.0, 0.0), 4);
         assert_eq!(spot.nb_rayons_valides, 61);
-        bath.surfaces[4].conique = 0.0;
-        let spot_sphere = calculer_spot_diagram(&bath, (0.0, 0.0), 4);
-        assert!(spot_sphere.rayon_rms_um < spot.rayon_rms_um / 10.0);
+        let bord = &crate::core::raytracer::tracer_eventail_meridional(&bath, 0.0, 3, 632.8)[2];
+        let h = bord.impacts[3].point_global.y.abs();
+        assert!(h > 25.9 && h < 26.0, "bord du miroir à {h} mm");
+        let front = crate::core::onde::calculer_front_onde(&bath, (0.0, 0.0), 632.8, 64).unwrap();
+        let parametres = crate::core::bath::ParametresBath { diametre_mm: 2.0 * h, rayon_courbure_mm: 300.0, ..Default::default() };
+        let attendu = parametres.spherique_theorique_ondes(-1.0);
+        assert!((front.zernike_ondes[10].abs() / attendu - 1.0).abs() < 0.02, "Z11 = {} / {attendu}", front.zernike_ondes[10]);
+        bath.surfaces[3].conique = 0.0;
+        let front = crate::core::onde::calculer_front_onde(&bath, (0.0, 0.0), 632.8, 64).unwrap();
+        assert!(front.pv_ondes < 1e-3, "sphère : PV = {}", front.pv_ondes);
     }
 
     #[test]

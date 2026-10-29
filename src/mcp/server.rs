@@ -142,6 +142,63 @@ pub struct AnalyserSpectreParams {
     pub largeur_fente: Option<f64>,
 }
 
+/// Paramètres de l'outil MCP `simuler_bath`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct SimulerBathParams {
+    /// Miroir, montage, réglages (franges), défauts de surface et options de réduction ; les
+    /// champs absents prennent leur valeur par défaut (200 mm F/6 parabolique, He-Ne 632,8 nm,
+    /// écart de 5 mm, 10 franges de basculement)
+    #[serde(default)]
+    pub parametres: crate::core::bath::ParametresBath,
+    /// Chemin d'un PNG où enregistrer l'interférogramme simulé (facultatif)
+    pub chemin_png: Option<String>,
+}
+
+/// Paramètres de l'outil MCP `analyser_interferogramme`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct AnalyserInterferogrammeParams {
+    /// Chemin absolu de la photo de l'interférogramme (PNG, JPEG, BMP, TIFF)
+    pub chemin: String,
+    /// Miroir (diamètre, rayon de courbure, conique visée, obstruction) et montage (longueur
+    /// d'onde, écart source – référence et sa direction)
+    #[serde(default)]
+    pub parametres: crate::core::bath::ParametresBath,
+    /// Disque du miroir dans la photo (pixels) ; absent : repéré automatiquement
+    pub disque: Option<crate::core::franges::Disque>,
+    /// Couronne exclue au bord du miroir, en % du rayon (3 par défaut)
+    pub marge_pct: Option<f64>,
+    /// Signe de la carte : `Auto` (par défaut), `Normal` ou `Inverse`
+    pub signe: Option<crate::core::bath::SigneCarte>,
+}
+
+/// Résumé d'une réduction de Bath, sans les cartes
+fn resume_reduction_bath(r: &crate::core::bath::ReductionBath) -> serde_json::Value {
+    let ecart: Vec<_> = r
+        .zernike_residu_ondes
+        .iter()
+        .enumerate()
+        .filter(|(j, c)| *j >= 4 && c.abs() >= 1e-3)
+        .map(|(j, c)| serde_json::json!({ "noll": j + 1, "nom": nom_zernike(j + 1), "ondes": c }))
+        .collect();
+    serde_json::json!({
+        "conique_visee": r.conique_visee,
+        "conique_mesuree": r.conique_mesuree,
+        "front_onde_pv_ondes": r.pv_ondes,
+        "front_onde_rms_ondes": r.rms_ondes,
+        "front_onde_pv_ondes_550nm": r.pv_ondes_550,
+        "front_onde_rms_ondes_550nm": r.rms_ondes_550,
+        "strehl_550nm": r.strehl_550,
+        "surface_pv_nm": r.pv_surface_nm,
+        "surface_rms_nm": r.rms_surface_nm,
+        "astigmatisme_bath_deduit_pv_ondes": r.astigmatisme_bath_ondes,
+        "spherique_attendue_z11_ondes": r.spherique_visee_ondes,
+        "signe_carte": r.signe,
+        "zernike_ecart_ondes": ecart,
+        "zernike_mesure_ondes": r.zernike_mesure_ondes,
+        "nb_points": r.nb_points,
+    })
+}
+
 /// Paramètres de l'outil MCP `importer_catalogue_agf(chemin)`
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct ImporterCatalogueParams {
@@ -199,7 +256,17 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 13] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 15] = [
+    (
+        "simuler_bath",
+        "Bath interferometer: simulates the interferogram of a concave mirror tested at its centre of curvature (exact paths, source/reference separation and Bath astigmatism, tilt and defocus in fringes, surface errors: Zernike, zone, turned edge) and reduces it against the target conic: measured conic, wavefront and surface PV/RMS, Strehl at 550 nm, Zernike of the deviation. Can save the interferogram as PNG.",
+        "Bath-Interferometer: simuliert das Interferogramm eines im Krümmungsmittelpunkt geprüften Hohlspiegels (exakte Wege, Abstand Quelle/Referenz und Bath-Astigmatismus, Kippung und Defokus in Streifen, Oberflächenfehler: Zernike, Zone, abfallender Rand) und wertet es gegen die Ziel-Konik aus: gemessene Konik, PV/RMS von Wellenfront und Oberfläche, Strehl bei 550 nm, Zernike der Abweichung. Kann das Interferogramm als PNG speichern.",
+    ),
+    (
+        "analyser_interferogramme",
+        "Analyses a photo of a Bath interferogram: finds the mirror disc (or uses the given one), extracts the wavefront by Fourier transform (Takeda) with Gerchberg extrapolation, quality-guided unwrapping and a global fit of the image model, then reduces it like simuler_bath (measured conic, PV/RMS, Strehl, Zernike). Needs about 10 to 20 tilt fringes.",
+        "Wertet ein Foto eines Bath-Interferogramms aus: findet die Spiegelscheibe (oder nimmt die angegebene), gewinnt die Wellenfront per Fourier-Transformation (Takeda) mit Gerchberg-Extrapolation, qualitätsgeführter Phasenentfaltung und globaler Anpassung des Bildmodells und wertet sie wie simuler_bath aus (gemessene Konik, PV/RMS, Strehl, Zernike). Benötigt etwa 10 bis 20 Kippstreifen.",
+    ),
     (
         "definir_systeme",
         "Sets the system parameters: object at infinity (fields in degrees) or at a finite distance (fields as object heights in mm), afocal image space, aperture (entrance pupil, F-number or object NA), fields and wavelengths with weights and reference.",
@@ -551,6 +618,81 @@ impl FreeOpticalMcpServer {
         }
     }
 
+    /// Interféromètre de Bath : simulation et réduction.
+    #[tool(
+        name = "simuler_bath",
+        description = "Interféromètre de Bath : simule l'interférogramme d'un miroir concave testé à son centre de courbure (chemins exacts, écart source/référence et astigmatisme de Bath, basculement et défocalisation en franges, défauts de surface : Zernike, zone, bord rabattu) et le réduit par rapport à la conique visée : conique mesurée, PV/RMS du front d'onde et de la surface, Strehl à 550 nm, Zernike de l'écart. Peut enregistrer l'interférogramme en PNG."
+    )]
+    pub async fn simuler_bath(&self, Parameters(params): Parameters<SimulerBathParams>) -> String {
+        let p = &params.parametres;
+        match crate::core::bath::simuler_et_reduire(p) {
+            Ok((sim, red)) => {
+                let mut png = serde_json::Value::Null;
+                if let Some(chemin) = &params.chemin_png {
+                    let image = crate::core::franges::ImageGris::depuis_grille(&sim.intensite, sim.taille);
+                    png = match image.enregistrer_png(std::path::Path::new(chemin)) {
+                        Ok(()) => serde_json::json!(chemin),
+                        Err(e) => serde_json::json!({ "erreur": e }),
+                    };
+                }
+                serde_json::json!({
+                    "rapport_ouverture": p.rapport_ouverture(),
+                    "decalage_lateral_mm": [sim.decalage_mm.0, sim.decalage_mm.1],
+                    "defocalisation_mm": sim.defocalisation_mm,
+                    "astigmatisme_bath_theorique_pv_ondes": p.astigmatisme_bath_theorique_ondes(),
+                    "reduction": resume_reduction_bath(&red),
+                    "png": png,
+                })
+                .to_string()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Analyse d'une photo d'interférogramme de Bath.
+    #[tool(
+        name = "analyser_interferogramme",
+        description = "Analyse la photo d'un interférogramme de Bath : repère le disque du miroir (ou prend celui donné), extrait le front d'onde par transformée de Fourier (Takeda) avec extrapolation de Gerchberg, déroulement guidé par la qualité et ajustement global du modèle d'image, puis le réduit comme simuler_bath (conique mesurée, PV/RMS, Strehl, Zernike). Il faut une dizaine à une vingtaine de franges de basculement."
+    )]
+    pub async fn analyser_interferogramme(&self, Parameters(params): Parameters<AnalyserInterferogrammeParams>) -> String {
+        use crate::core::franges::{ImageGris, OptionsFranges, detecter_disque, extraire_phase};
+        let resultat = (|| -> Result<serde_json::Value, String> {
+            let p = &params.parametres;
+            p.valider()?;
+            let img = ImageGris::charger(std::path::Path::new(&params.chemin))?;
+            let disque = match params.disque {
+                Some(d) => d,
+                None => detecter_disque(&img).ok_or_else(|| {
+                    tr!(
+                        "miroir non repéré dans la photo : donnez le disque (centre et rayon en pixels)",
+                        "mirror not found in the photo: give the disc (centre and radius in pixels)",
+                        "Spiegel im Foto nicht gefunden: Scheibe angeben (Mitte und Radius in Pixeln)"
+                    )
+                    .to_string()
+                })?,
+            };
+            let opt = OptionsFranges {
+                disque,
+                marge_pct: params.marge_pct.unwrap_or(3.0),
+                rho_obstruction: p.rho_obstruction(),
+                taille: p.taille,
+            };
+            let carte = extraire_phase(&img, &opt)?;
+            let red = crate::core::bath::reduire_carte(&carte.opd_ondes, p, params.signe.unwrap_or_default())?;
+            Ok(serde_json::json!({
+                "image_px": [img.largeur, img.hauteur],
+                "disque": disque,
+                "porteuse_franges": [carte.porteuse_franges.0, carte.porteuse_franges.1],
+                "contraste": carte.contraste,
+                "reduction": resume_reduction_bath(&red),
+            }))
+        })();
+        match resultat {
+            Ok(v) => v.to_string(),
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
     /// Importe un catalogue de verres .agf.
     #[tool(
         name = "importer_catalogue_agf",
@@ -851,6 +993,37 @@ mod tests {
         assert!((ftm[0]["tangentielle"].as_f64().unwrap() - 1.0).abs() < 1e-9);
         let coupure = json["frequence_coupure_cyc_mm"].as_f64().unwrap();
         assert!((ftm[4]["frequence_cyc_mm"].as_f64().unwrap() - coupure).abs() < 1e-6 * coupure);
+    }
+
+    #[tokio::test]
+    async fn test_outils_mcp_bath() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let png = std::env::temp_dir().join(format!("freeoptical_bath_{}.png", std::process::id()));
+        let parametres: crate::core::bath::ParametresBath =
+            serde_json::from_value(serde_json::json!({ "conique": -0.9, "basculement_y_franges": 12.0, "defocalisation_franges": -2.0 })).unwrap();
+        let res = srv
+            .simuler_bath(Parameters(SimulerBathParams { parametres: parametres.clone(), chemin_png: Some(png.display().to_string()) }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let k = json["reduction"]["conique_mesuree"].as_f64().unwrap();
+        assert!((k + 0.9).abs() < 0.005, "{res}");
+
+        // L'interférogramme enregistré, relu comme une photo, redonne la même conique
+        let res = srv
+            .analyser_interferogramme(Parameters(AnalyserInterferogrammeParams {
+                chemin: png.display().to_string(),
+                parametres,
+                ..Default::default()
+            }))
+            .await;
+        std::fs::remove_file(&png).ok();
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let k = json["reduction"]["conique_mesuree"].as_f64().unwrap_or(f64::NAN);
+        assert!((k + 0.9).abs() < 0.02, "{res}");
+        let erreur = srv
+            .analyser_interferogramme(Parameters(AnalyserInterferogrammeParams { chemin: "/inexistant.png".into(), ..Default::default() }))
+            .await;
+        assert!(erreur.contains("erreur"));
     }
 
     #[tokio::test]

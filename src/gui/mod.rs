@@ -3,6 +3,7 @@
 //! et contrôle interactif à la souris et au clavier.
 
 mod aberrations;
+mod bath;
 mod optimisation;
 mod systeme;
 mod ondes;
@@ -289,6 +290,8 @@ pub struct FreeOpticalGuiApp {
     pub reglages_optim: optimisation::ReglagesOptimisation,
     /// Résultat du dernier import (réussi, message, avertissements) affiché dans la fenêtre d'import
     pub bilan_import: Option<(bool, String, Vec<String>)>,
+    /// Interféromètre de Bath (simulation, réduction, analyse de photos)
+    pub bath: bath::EtatBath,
 }
 
 impl FreeOpticalGuiApp {
@@ -330,6 +333,7 @@ impl FreeOpticalGuiApp {
                 .map(|d| d.display().to_string())
                 .unwrap_or_default(),
             bilan_import: None,
+            bath: bath::EtatBath::default(),
         }
     }
 
@@ -816,7 +820,11 @@ impl eframe::App for FreeOpticalGuiApp {
                         {
                             self.charger_systeme(
                                 creer_interferometre_bath(),
-                                tr!("Interféromètre de Bath (632.8 nm) avec Cube Séparateur chargé.", "Bath Interferometer (632.8 nm) with beam splitter cube loaded.", "Bath-Interferometer (632.8 nm) mit Strahlteiler-Cube geladen."),
+                                tr!(
+                                    "Miroir au centre de courbure (montage de Bath) chargé : interférogramme dans Outils > Interféromètre de Bath.",
+                                    "Mirror at centre of curvature (Bath set-up) loaded: interferogram in Tools > Bath interferometer.",
+                                    "Spiegel im Krümmungsmittelpunkt (Bath-Aufbau) geladen: Interferogramm unter Werkzeuge > Bath-Interferometer."
+                                ),
                             );
                             ui.close();
                         }
@@ -1014,6 +1022,13 @@ impl eframe::App for FreeOpticalGuiApp {
                             self.mise_au_point_paraxiale();
                             ui.close();
                         }
+                        if ui
+                            .button(tr!("Interféromètre de Bath (simulation, analyse de photos)…", "Bath interferometer (simulation, photo analysis)…", "Bath-Interferometer (Simulation, Fotoauswertung)…"))
+                            .clicked()
+                        {
+                            self.bath.ouverte = true;
+                            ui.close();
+                        }
                         ui.separator();
                         if ui.button(tr!("Rechercher une mise à jour…", "Check for updates…", "Nach Updates suchen…")).clicked() {
                             self.rechercher_mise_a_jour(&ctx);
@@ -1187,13 +1202,16 @@ impl eframe::App for FreeOpticalGuiApp {
         self.dessiner_fenetre_import(&ctx);
         self.dessiner_fenetre_optimisation(&ctx);
         self.dessiner_fenetre_systeme(&ctx);
+        self.dessiner_fenetre_bath(&ctx);
 
         // Glisser-déposer d'un fichier système (.json, .TDS, .RLD, .DES) sur la fenêtre
         let depose = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| {
             let p = f.path();
             (!p.as_os_str().is_empty()).then(|| p.to_path_buf())
         }));
-        if let Some(chemin) = depose {
+        if let Some(chemin) = depose.as_ref().filter(|c| bath::est_image(c)) {
+            self.bath.ouvrir_photo(chemin);
+        } else if let Some(chemin) = depose {
             self.ouvrir_fichier(&chemin);
             if est_fichier_teloptik(&chemin) || est_catalogue_agf(&chemin) {
                 self.fenetre_import = true;

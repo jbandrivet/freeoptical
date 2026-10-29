@@ -9,7 +9,7 @@
 **Logiciel libre de conception et de simulation optique séquentielle pour Linux : interface graphique, interface terminal et serveur MCP.**
 
 FreeOptical permet de concevoir n'importe quel système optique (objectif, lunette, télescope à miroirs, montage de test…) surface par surface, puis de l'analyser et de l'optimiser. Il est écrit en **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) et combine :
-1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, surfaces basculées et décentrées (systèmes repliés), obstructions centrales, réseaux de diffraction, vrais verres (formules de Sellmeier, catalogues Zemax `.agf` Schott, Ohara, CDGM…), spot diagram polychromatique, aberration sphérique longitudinale, différence de marche (OPD) et front d'onde avec polynômes de Zernike, rapport de Strehl, PSF et FTM de diffraction, courbes de rayons, courbure de champ, distorsion, coefficients de Seidel, et optimisation Damped Least Squares sur tous les champs et toutes les couleurs.
+1. **Un moteur de lancer de rayons séquentiel 3D** : calcul paraxial ABCD, lois de Snell-Descartes vectorielles, surfaces planes, sphériques, coniques et asphériques paires, miroirs, surfaces basculées et décentrées (systèmes repliés), obstructions centrales, réseaux de diffraction, vrais verres (formules de Sellmeier, catalogues Zemax `.agf` Schott, Ohara, CDGM…), spot diagram polychromatique, aberration sphérique longitudinale, différence de marche (OPD) et front d'onde avec polynômes de Zernike, rapport de Strehl, PSF et FTM de diffraction, courbes de rayons, courbure de champ, distorsion, coefficients de Seidel, et optimisation Damped Least Squares sur tous les champs et toutes les couleurs ; test des miroirs à l'interféromètre de Bath (simulation, réduction, analyse de photos d'interférogrammes).
 2. **Une interface graphique et une interface terminal (`--tui`) en français, en anglais ou en allemand** : Éditeur de Données de Lentilles (LDE), coupe 2D avec lancer de rayons, vue 3D orientable, spot diagram, LSA, catalogue de verres, front d'onde, PSF et FTM. On part d'un système vierge (`Fichier` → `Nouveau système vierge`) ou de l'un des exemples fournis comme point de départ.
 3. **Un serveur Model Context Protocol (MCP) intégré** permettant à un agent IA de concevoir, simuler et optimiser des systèmes optiques.
 
@@ -53,6 +53,7 @@ freeoptical --langue fr
 - **`F7` / `7`** : Vue 7 — Tache image de diffraction (PSF)
 - **`F8` / `8`** : Vue 8 — FTM tangentielle et sagittale de tous les champs
 - **`9`** : Courbes de rayons (aberrations transverses) ; **`0`** : Courbure de champ et distorsion ; coefficients de Seidel par le menu `Analyse`
+- **`B`** : Interféromètre de Bath pour le miroir du système (`X`/`x`, `Y`/`y` : basculement, `D`/`d` : défocalisation, `F` : franges droites, `E`/`e` : écart, `K`/`k` et `V`/`v` : coniques réelle et visée, `A` : astigmatisme, `Échap` : fermer)
 - **`C`** / **`W`** : Champ suivant / longueur d'onde suivante pour les vues d'analyse
 - **`I` / `Ins`** : Insérer une surface avant la ligne sélectionnée
 - **`A`** : Ajouter une surface avant le Plan Image
@@ -97,6 +98,13 @@ Les vues `F6`, `F7` et `F8` (fenêtre graphique et TUI) s'appliquent au champ et
 - **FTM** : module de la transformée de Fourier de la PSF, tangentielle et sagittale pour chaque champ, avec la limite de diffraction de la pupille.
 - Vérifié par les tests : parabole parfaite (Strehl 1, FTM égale à la formule de la pupille circulaire), défocalisation (Strehl exact sinc²), aberration sphérique d'un miroir sphérique et coma d'une parabole conformes aux formules du 3e ordre, centre de gravité de la PSF égal à celui du spot diagram.
 
+#### Interféromètre de Bath (test des miroirs au centre de courbure)
+- `Outils` → `Interféromètre de Bath` (touche `B` dans le TUI). **Simulation** : miroir (diamètre, rayon de courbure, conique réelle et conique visée, obstruction), montage (longueur d'onde, écart source – référence et sa direction), réglages en franges (basculement X/Y, défocalisation ; bouton « franges les plus droites ») et défauts de surface (Zernike, zone, bord rabattu ou relevé). Les chemins sont calculés exactement (`|SM| + |MQ|` sur la flèche exacte de la conique) : l'astigmatisme de Bath dû à l'écart `s` (s²D²/16R³ crête-à-creux) apparaît de lui-même.
+- **Réduction** : la carte est comparée à celle du miroir parfait de conique visée dans le même montage (sphérique au centre de courbure et astigmatisme de Bath déduits), piston, basculements et défocalisation retirés (l'astigmatisme sur demande) : conique mesurée, crête-à-creux et RMS du front d'onde (au λ du laser et à 550 nm) et de la surface (nm), Strehl à 550 nm, carte d'erreur et Zernike de l'écart.
+- **Analyse d'une photo** (PNG, JPEG, BMP, TIFF, qu'on peut glisser sur la fenêtre) : le disque du miroir est repéré automatiquement (réglable à la main ou à la souris), le front d'onde extrait par la méthode de Takeda (FFT, extrapolation de Gerchberg, déroulement guidé par la qualité, affinement local puis ajustement global du modèle d'image sur 37 Zernike) et réduit comme ci-dessus. Il faut une dizaine à une vingtaine de franges de basculement, mise au point réglée pour des franges aussi droites que possible. Une seule photo ne distingue pas bosse et creux : le signe est choisi automatiquement (le plus proche de la conique visée) ou imposé.
+- Vérifié par les tests : sphère sans écart = teinte plate, réglages en franges exacts, astigmatisme de Bath et sphérique de la parabole conformes aux formules, conique et défauts retrouvés ; sur des photos simulées (bruit, éclairage gaussien, obstruction centrale), conique retrouvée à ±0,005 et RMS à ±0,003 λ, disque repéré à mieux d'un pixel.
+- L'exemple `Fichier` → `Charger Interféromètre de Bath` est le montage séquentiel correspondant : lentille de Bath idéale (ses aberrations se compensent dans le vrai montage) et miroir pris comme pupille ; son front d'onde (F6) montre l'écart du miroir à la sphère.
+
 #### Import des fichiers TDESIGN, LENSDES et RAYTRACE
 FreeOptical lit les fichiers de conception des programmes du livre *Telescope Optics: Evaluation and Design* (H. G. J. Rutten et M. A. M. van Venrooij, Willmann-Bell, 1988) : `.TDS` (TDESIGN, télescopes à miroirs et catadioptriques), `.RLD` (LENSDES, objectifs de lunette) et `.DES` (RAYTRACE). Menu `Fichier` → `Importer TDESIGN / LENSDES / RAYTRACE`, option `--fichier`, ou outil MCP `importer_teloptik`.
 - Sont repris : sphères, coniques, asphères (coefficients en r² à r¹⁰), lames de Schmidt définies par leur puissance relative et leur zone neutre (profil du 3e ordre), miroirs (changement de signe de l'indice, y compris dans le verre d'un Mangin), décalages axiaux, indices N1/N2/N3 convertis en verre `nd:Vd`, diamètres limites quand le vignettage était activé dans RAYTRACE.
@@ -132,6 +140,8 @@ freeoptical --mcp
 - `importer_catalogue_agf(chemin)` : importe un catalogue de verres Zemax `.agf`.
 - `definir_systeme(...)` : objet (infini ou distance), afocal, ouverture, champs, longueurs d'onde.
 - `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)` : positions, dispersion, tache, image de fente et résolution d'un spectrographe.
+- `simuler_bath(parametres, chemin_png)` : interférogramme d'un miroir au centre de courbure et sa réduction (conique mesurée, PV/RMS, Strehl, Zernike), PNG facultatif.
+- `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)` : analyse et réduction de la photo d'un interférogramme de Bath.
 - `modifier_surface` accepte aussi `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` et `reseau_ordre` ; `optimiser_systeme` accepte les variables `a4` à `a10` et les cibles `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---

@@ -2,6 +2,7 @@
 
 pub mod analysis_view;
 pub mod app;
+pub mod bath_view;
 pub mod lde;
 pub mod ondes_view;
 pub mod theme;
@@ -126,9 +127,9 @@ fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
 
     spans.push(Span::styled(
         tr!(
-            "  [1-9,0:Vues  C:Champ  W:λ  F10/M:Menu  F12:Langue]",
-            "  [1-9,0:Views  C:Field  W:λ  F10/M:Menu  F12:Language]",
-            "  [1-9,0:Ansichten  C:Feld  W:λ  F10/M:Menü  F12:Sprache]"
+            "  [1-9,0:Vues  B:Bath  C:Champ  W:λ  F10/M:Menu  F12:Langue]",
+            "  [1-9,0:Views  B:Bath  C:Field  W:λ  F10/M:Menu  F12:Language]",
+            "  [1-9,0:Ansichten  B:Bath  C:Feld  W:λ  F10/M:Menü  F12:Sprache]"
         ),
         Style::default().bg(DOS_BAR_BG).fg(Color::Rgb(60, 60, 60)),
     ));
@@ -138,6 +139,13 @@ fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
 }
 
 fn dessiner_zone_inferieure(f: &mut Frame, zone: Rect, app: &AppState) {
+    if let Some(bath) = &app.bath {
+        let bloc = bloc_dos(tr!("INTERFÉROMÈTRE DE BATH", "BATH INTERFEROMETER", "BATH-INTERFEROMETER"), false);
+        let interieur = bloc.inner(zone);
+        f.render_widget(bloc, zone);
+        bath_view::dessiner(f, interieur, bath);
+        return;
+    }
     let bloc = bloc_dos(app.vue_active.titre(), false);
     let interieur = bloc.inner(zone);
     f.render_widget(bloc, zone);
@@ -319,8 +327,23 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
         return;
     }
 
+    // Vue Bath : ses touches de réglage passent avant les raccourcis de l'éditeur
+    if let Some(bath) = app.bath.as_mut() {
+        if matches!(code, KeyCode::Esc | KeyCode::Char('b') | KeyCode::Char('B')) {
+            app.bath = None;
+            return;
+        }
+        if bath.touche(code, &app.systeme) {
+            return;
+        }
+        if matches!(code, KeyCode::F(1..=9) | KeyCode::Char('0'..='9')) {
+            app.bath = None;
+        }
+    }
+
     match code {
         KeyCode::Char('q') | KeyCode::Char('Q') => app.doit_quitter = true,
+        KeyCode::Char('b') | KeyCode::Char('B') => app.basculer_bath(),
         KeyCode::F(10) | KeyCode::Char('m') | KeyCode::Char('M') => {
             app.menu_ouvert = Some(0);
             app.item_menu_selectionne = 0;
@@ -413,6 +436,16 @@ mod tests {
             app.preparer_vue();
             terminal.draw(|f| dessiner_interface(f, &app)).unwrap();
         }
+
+        // Vue Bath : ouverte par B, réglée au clavier, fermée par Échap
+        gerer_clavier(&mut app, KeyCode::Char('B'), KeyModifiers::NONE);
+        gerer_clavier(&mut app, KeyCode::Char('Y'), KeyModifiers::NONE);
+        assert_eq!(app.bath.as_ref().unwrap().params.basculement_y_franges, 1.0);
+        app.preparer_vue();
+        terminal.draw(|f| dessiner_interface(f, &app)).unwrap();
+        let texte: String = terminal.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        assert!(texte.contains("INTERFÉROGRAMME") && texte.contains("▀"), "vue Bath non dessinée");
+        gerer_clavier(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.bath.is_none());
     }
 }
-
