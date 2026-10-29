@@ -70,7 +70,7 @@ freeoptical --langue de
 #### Sprache der Oberfläche
 FreeOptical gibt es auf Französisch, Englisch und Deutsch: Menü `Sprache` (grafisches Fenster und TUI), Taste `F12` in der TUI oder Option `--langue fr|en|de`. Die Wahl wird in `~/.config/freeoptical/langue` gespeichert; beim ersten Start gilt die Systemsprache (`LANG`). Die Namen der MCP-Werkzeuge, der JSON-Felder und der Materialien (`AIR`, `MIROIR`) sind in allen Sprachen gleich; die Beschreibungen der MCP-Werkzeuge und die Meldungen folgen der gewählten Sprache.
 
-Im grafischen Fenster speichert und lädt das Menü `Datei` die Datei `systeme_optique.json` im aktuellen Verzeichnis. Eine `.json`-, `.TDS`-, `.RLD`- oder `.DES`-Datei kann auch auf das Fenster gezogen werden.
+Im grafischen Fenster bietet das Menü `Datei` **Öffnen…** (`Strg+O`), **Speichern** (`Strg+S`) und **Speichern unter…** (`Strg+Umschalt+S`): ein Ordner-Browser mit Abkürzungen zum persönlichen Ordner, Schreibtisch, Downloads und Dokumenten, der `.json`-Systeme, Zemax-Dateien `.zmx`, `.TDS`-, `.RLD`-, `.DES`-Dateien und `.agf`-Kataloge öffnet und sich den zuletzt benutzten Ordner merkt. Die mitgelieferten Beispiele stehen unter `Datei` → `Beispiele`. Eine Datei kann auch auf das Fenster gezogen werden.
 Die Schaltfläche **`Update`** (unten rechts oder Menü `Werkzeuge`) sucht die neueste auf GitHub veröffentlichte Version; ist sie neuer, lädt sie das `.deb`-Paket herunter, prüft dessen SHA-256-Prüfsumme, installiert es mit `apt-get` (das Administratorpasswort wird von `pkexec` abgefragt) und bietet einen Neustart von FreeOptical an.
 Die Asphärenkoeffizienten A4, A6, A8, A10 der ausgewählten Fläche werden in der Zeile über der LDE-Tabelle bearbeitet (Ziehen: 0,1 µm Pfeilhöhe am Rand pro Pixel; Klicken: direkte Eingabe, z. B. `2.1e-7`); das Ändern eines Koeffizienten schaltet die Fläche auf den Typ `ASPHÄRISCH`.
 
@@ -118,12 +118,12 @@ Automatische Berechnungen, vor jeder Analyse und bei jedem Optimierungsschritt n
 - Ein unmöglicher Solve (paralleler Strahl, fehlende Fläche…) wird gemeldet und der vorige Wert behalten.
 
 #### Import von Zemax-Dateien `.zmx`
-Sequentielle OpticStudio-Linsendateien (UTF-16 oder ASCII): `Datei` → `Importieren`, Ziehen und Ablegen, Option `--fichier` oder MCP-Werkzeug `importer_zemax`.
+Sequentielle OpticStudio-Linsendateien (UTF-16 oder ASCII): `Datei` → `Öffnen…`, Ziehen und Ablegen, Option `--fichier` oder MCP-Werkzeug `importer_zemax`.
 - Übernommen werden: Flächen `STANDARD`, `EVENASPH` (r⁴ bis r¹⁰), `COORDBRK`, `PARAXIAL`, `DGRATING`, Krümmungen, Dicken, Koniken, Gläser (über ihren Namen, wenn bekannt — eingebaute oder importierte `.agf`-Kataloge —, sonst über ihr nd/Vd-Modell), `MIRROR`, Halbdurchmesser (berechnet, wenn null), `CLAP` und `OBSC`, Blende, Einheiten (mm, cm, m, Zoll), Pupille (`ENPD`, `FNUM`, `OBNA`, `FLOA`), Felder als Winkel, Objekt- oder Bildhöhen (umgerechnet), Wellenlängen und Hauptwellenlänge.
 - Zemax-Solves werden mit ihren aktuellen Werten fest übernommen; andere Flächentypen werden als Standardflächen importiert, und alles nicht Übernommene wird im Importbericht aufgeführt.
 
 #### Import von TDESIGN-, LENSDES- und RAYTRACE-Dateien
-FreeOptical liest die Designdateien der Programme aus dem Buch *Telescope Optics: Evaluation and Design* (H. G. J. Rutten und M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, Spiegel- und katadioptrische Teleskope), `.RLD` (LENSDES, Refraktorobjektive) und `.DES` (RAYTRACE). Menü `Datei` → `TDESIGN / LENSDES / RAYTRACE importieren`, Option `--fichier` oder MCP-Werkzeug `importer_teloptik`.
+FreeOptical liest die Designdateien der Programme aus dem Buch *Telescope Optics: Evaluation and Design* (H. G. J. Rutten und M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, Spiegel- und katadioptrische Teleskope), `.RLD` (LENSDES, Refraktorobjektive) und `.DES` (RAYTRACE). Menü `Datei` → `Öffnen…`, Option `--fichier` oder MCP-Werkzeug `importer_teloptik`.
 - Übernommen werden: Sphären, Kegelschnitte, Asphären (Koeffizienten r² bis r¹⁰), Schmidtplatten aus relativer Stärke und neutraler Zone (Profil dritter Ordnung), Spiegel (Vorzeichenwechsel des Index, auch im Glas eines Mangin-Spiegels), axiale Verschiebungen, Indizes N1/N2/N3 als Gläser `nd:Vd`, Grenzdurchmesser, wenn in RAYTRACE die Vignettierung aktiv war.
 - Die Bildebene liegt im paraxialen Fokus; die Halbdurchmesser werden so berechnet, dass das Bündel auf der Achse und bei 0,5° Feld durchgeht.
 - Zentrale Obstruktionen werden übernommen, wenn in RAYTRACE die Vignettierung aktiv war; gekippte oder dezentrierte Dateien werden abgelehnt, da die Platzierungskonvention von RAYTRACE nicht sicher bekannt ist.

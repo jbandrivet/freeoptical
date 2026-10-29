@@ -70,7 +70,7 @@ freeoptical --langue fr
 #### Langue de l'interface
 FreeOptical s'affiche en français, en anglais ou en allemand : menu `Langue` (fenêtre graphique et TUI), touche `F12` dans le TUI, ou option `--langue fr|en|de`. Le choix est enregistré dans `~/.config/freeoptical/langue` ; au premier démarrage, c'est la langue du système (`LANG`) qui est prise. Les noms des outils MCP, des champs JSON et des matériaux (`AIR`, `MIROIR`) sont les mêmes dans toutes les langues ; les descriptions des outils MCP et les messages suivent la langue choisie.
 
-Dans la fenêtre graphique, le menu `Fichier` sauvegarde et recharge `systeme_optique.json` dans le répertoire courant. On peut aussi glisser un fichier `.json`, `.TDS`, `.RLD` ou `.DES` sur la fenêtre.
+Dans la fenêtre graphique, le menu `Fichier` propose **Ouvrir…** (`Ctrl+O`), **Enregistrer** (`Ctrl+S`) et **Enregistrer sous…** (`Ctrl+Maj+S`) : un navigateur de dossiers avec des raccourcis vers le dossier personnel, le Bureau, les Téléchargements et les Documents, qui ouvre les systèmes `.json`, les fichiers Zemax `.zmx`, `.TDS`, `.RLD`, `.DES` et les catalogues `.agf`, et se souvient du dernier dossier utilisé. Les exemples fournis sont dans `Fichier` → `Exemples`. On peut aussi glisser un fichier sur la fenêtre.
 Le bouton **`Mise à jour`** (en bas à droite, ou menu `Outils`) cherche la dernière version publiée sur GitHub ; si elle est plus récente, il télécharge le paquet `.deb`, vérifie son empreinte SHA-256 et l'installe avec `apt-get` (le mot de passe administrateur est demandé par `pkexec`), puis propose de redémarrer FreeOptical.
 Les coefficients asphériques A4, A6, A8, A10 de la surface sélectionnée s'éditent sur la ligne au-dessus du tableau LDE (glisser : 0,1 µm de flèche au bord par pixel ; clic : saisie directe, ex. `2.1e-7`) ; modifier un coefficient passe la surface en type `ASPHERIQUE`.
 
@@ -118,12 +118,12 @@ Calculs automatiques refaits avant chaque analyse et à chaque pas de l'optimise
 - Un solve impossible (rayon parallèle, surface inexistante…) est signalé et la valeur précédente conservée.
 
 #### Import des fichiers Zemax `.zmx`
-Fichiers de lentilles OpticStudio séquentiels (UTF-16 ou ASCII) : menu `Fichier` → `Importer`, glisser-déposer, option `--fichier` ou outil MCP `importer_zemax`.
+Fichiers de lentilles OpticStudio séquentiels (UTF-16 ou ASCII) : menu `Fichier` → `Ouvrir…`, glisser-déposer, option `--fichier` ou outil MCP `importer_zemax`.
 - Sont repris : surfaces `STANDARD`, `EVENASPH` (r⁴ à r¹⁰), `COORDBRK`, `PARAXIAL`, `DGRATING`, courbures, épaisseurs, coniques, verres (par leur nom s'il est connu — catalogues intégrés ou `.agf` importés —, sinon par leur modèle nd/Vd), `MIRROR`, demi-diamètres (calculés s'ils sont nuls), `CLAP` et `OBSC`, diaphragme, unités (mm, cm, m, pouces), pupille (`ENPD`, `FNUM`, `OBNA`, `FLOA`), champs en angle, en hauteur objet ou en hauteur image (convertis), longueurs d'onde et longueur d'onde principale.
 - Les solves de Zemax sont repris avec leurs valeurs du moment, figées ; les autres types de surface sont importés comme surfaces standard et tout ce qui n'est pas repris est listé dans le bilan de l'import.
 
 #### Import des fichiers TDESIGN, LENSDES et RAYTRACE
-FreeOptical lit les fichiers de conception des programmes du livre *Telescope Optics: Evaluation and Design* (H. G. J. Rutten et M. A. M. van Venrooij, Willmann-Bell, 1988) : `.TDS` (TDESIGN, télescopes à miroirs et catadioptriques), `.RLD` (LENSDES, objectifs de lunette) et `.DES` (RAYTRACE). Menu `Fichier` → `Importer TDESIGN / LENSDES / RAYTRACE`, option `--fichier`, ou outil MCP `importer_teloptik`.
+FreeOptical lit les fichiers de conception des programmes du livre *Telescope Optics: Evaluation and Design* (H. G. J. Rutten et M. A. M. van Venrooij, Willmann-Bell, 1988) : `.TDS` (TDESIGN, télescopes à miroirs et catadioptriques), `.RLD` (LENSDES, objectifs de lunette) et `.DES` (RAYTRACE). Menu `Fichier` → `Ouvrir…`, option `--fichier`, ou outil MCP `importer_teloptik`.
 - Sont repris : sphères, coniques, asphères (coefficients en r² à r¹⁰), lames de Schmidt définies par leur puissance relative et leur zone neutre (profil du 3e ordre), miroirs (changement de signe de l'indice, y compris dans le verre d'un Mangin), décalages axiaux, indices N1/N2/N3 convertis en verre `nd:Vd`, diamètres limites quand le vignettage était activé dans RAYTRACE.
 - Le plan image est placé au foyer paraxial et les demi-diamètres sont calculés pour laisser passer le faisceau sur l'axe et à 0,5° de champ.
 - Les obstructions centrales sont reprises quand le vignettage était activé dans RAYTRACE ; les fichiers basculés ou décentrés sont refusés, la convention de placement de RAYTRACE n'étant pas connue avec certitude.

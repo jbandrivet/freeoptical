@@ -70,7 +70,7 @@ freeoptical --langue en
 #### Interface language
 FreeOptical is available in French, English and German: `Language` menu (graphical window and TUI), `F12` key in the TUI, or `--langue fr|en|de` option. The choice is saved in `~/.config/freeoptical/langue`; on first start the system language (`LANG`) is used. MCP tool names, JSON field names and material names (`AIR`, `MIROIR`) are the same in every language; MCP tool descriptions and messages follow the chosen language.
 
-In the graphical window, the `File` menu saves and reloads `systeme_optique.json` in the current directory. You can also drop a `.json`, `.TDS`, `.RLD` or `.DES` file onto the window.
+In the graphical window, the `File` menu offers **Open…** (`Ctrl+O`), **Save** (`Ctrl+S`) and **Save as…** (`Ctrl+Shift+S`): a folder browser with shortcuts to the home folder, Desktop, Downloads and Documents, which opens `.json` systems, Zemax `.zmx` files, `.TDS`, `.RLD`, `.DES` files and `.agf` catalogues, and remembers the last folder used. The bundled examples are under `File` → `Examples`. You can also drop a file onto the window.
 The **`Update`** button (bottom right, or `Tools` menu) looks for the latest version published on GitHub; if it is newer, it downloads the `.deb` package, checks its SHA-256 digest and installs it with `apt-get` (the administrator password is asked by `pkexec`), then offers to restart FreeOptical.
 The A4, A6, A8, A10 aspheric coefficients of the selected surface are edited on the line above the LDE table (drag: 0.1 µm of edge sag per pixel; click: type a value, e.g. `2.1e-7`); changing a coefficient switches the surface to the `ASPHERIC` type.
 
@@ -118,12 +118,12 @@ Automatic calculations redone before every analysis and at every optimizer step 
 - An impossible solve (parallel ray, missing surface…) is reported and the previous value kept.
 
 #### Importing Zemax `.zmx` files
-Sequential OpticStudio lens files (UTF-16 or ASCII): `File` → `Import`, drag and drop, `--fichier` option or MCP tool `importer_zemax`.
+Sequential OpticStudio lens files (UTF-16 or ASCII): `File` → `Open…`, drag and drop, `--fichier` option or MCP tool `importer_zemax`.
 - Imported: `STANDARD`, `EVENASPH` (r⁴ to r¹⁰), `COORDBRK`, `PARAXIAL`, `DGRATING` surfaces, curvatures, thicknesses, conics, glasses (by name when known — built-in or imported `.agf` catalogues — otherwise by their nd/Vd model), `MIRROR`, semi-diameters (computed when zero), `CLAP` and `OBSC`, stop, units (mm, cm, m, inches), pupil (`ENPD`, `FNUM`, `OBNA`, `FLOA`), fields as angles, object heights or image heights (converted), wavelengths and primary wavelength.
 - Zemax solves are imported with their current values, frozen; other surface types are imported as standard surfaces and everything not imported is listed in the import report.
 
 #### Importing TDESIGN, LENSDES and RAYTRACE files
-FreeOptical reads the design files of the programs from the book *Telescope Optics: Evaluation and Design* (H. G. J. Rutten and M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, mirror and catadioptric telescopes), `.RLD` (LENSDES, refractor objectives) and `.DES` (RAYTRACE). `File` menu → `Import TDESIGN / LENSDES / RAYTRACE`, `--fichier` option, or `importer_teloptik` MCP tool.
+FreeOptical reads the design files of the programs from the book *Telescope Optics: Evaluation and Design* (H. G. J. Rutten and M. A. M. van Venrooij, Willmann-Bell, 1988): `.TDS` (TDESIGN, mirror and catadioptric telescopes), `.RLD` (LENSDES, refractor objectives) and `.DES` (RAYTRACE). `File` menu → `Open…`, `--fichier` option, or `importer_teloptik` MCP tool.
 - Imported: spheres, conics, aspheres (r² to r¹⁰ coefficients), Schmidt plates defined by their relative power and neutral zone (third-order profile), mirrors (sign change of the index, including inside the glass of a Mangin), axial shifts, N1/N2/N3 indices converted to `nd:Vd` glasses, limiting diameters when vignetting was enabled in RAYTRACE.
 - The image plane is placed at the paraxial focus and the semi-diameters are computed to pass the beam on axis and at 0.5° field.
 - Central obstructions are imported when vignetting was enabled in RAYTRACE; tilted or decentered files are refused, as RAYTRACE's placement convention is not known for certain.

@@ -7,6 +7,7 @@ mod analyses;
 mod bath;
 mod optimisation;
 mod systeme;
+mod fichiers;
 mod ondes;
 mod solves;
 
@@ -182,7 +183,6 @@ fn est_verre(sys: &OpticalSystem, surf: &Surface) -> bool {
 }
 
 /// Fichier de sauvegarde du système, dans le répertoire courant
-const FICHIER_SYSTEME: &str = "systeme_optique.json";
 
 fn titre_fenetre() -> String {
     trf!(
@@ -281,6 +281,14 @@ pub struct FreeOpticalGuiApp {
     recepteur_maj: Option<mpsc::Receiver<EtatMaj>>,
     pub fenetre_import: bool,
     pub dossier_import: String,
+    /// Mode de la fenêtre de fichiers (Ouvrir / Enregistrer sous)
+    pub mode_fichiers: fichiers::ModeFichiers,
+    /// Nom proposé dans « Enregistrer sous »
+    pub nom_enregistrement: String,
+    /// Fichier existant dont le remplacement attend une confirmation
+    pub confirmer_remplacement: Option<PathBuf>,
+    /// Fichier .json du système courant (ouvert ou enregistré), pour « Enregistrer »
+    pub chemin_courant: Option<PathBuf>,
     /// Champ, longueur d'onde et résultats des analyses front d'onde / PSF / FTM
     pub ondes: AnalysesOndes,
     textures_ondes: ondes::TexturesOndes,
@@ -336,9 +344,11 @@ impl FreeOpticalGuiApp {
             fenetre_systeme: false,
             spot_par_lambda: false,
             reglages_optim: optimisation::ReglagesOptimisation::default(),
-            dossier_import: std::env::current_dir()
-                .map(|d| d.display().to_string())
-                .unwrap_or_default(),
+            dossier_import: fichiers::dossier_initial(),
+            mode_fichiers: fichiers::ModeFichiers::Ouvrir,
+            nom_enregistrement: String::new(),
+            confirmer_remplacement: None,
+            chemin_courant: None,
             bilan_import: None,
             bath: bath::EtatBath::default(),
             alertes_solves,
@@ -358,6 +368,7 @@ impl FreeOpticalGuiApp {
 
     pub fn charger_systeme(&mut self, sys: OpticalSystem, msg: impl Into<String>) {
         self.systeme = sys;
+        self.chemin_courant = None;
         self.ligne_selectionnee = 0;
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
@@ -367,7 +378,8 @@ impl FreeOpticalGuiApp {
 
     /// Ouvre un fichier système : `.json` FreeOptical, ou `.TDS` / `.RLD` / `.DES` des programmes
     /// TDESIGN, LENSDES et RAYTRACE (Rutten et van Venrooij)
-    pub fn ouvrir_fichier(&mut self, chemin: &Path) {
+    /// Retourne vrai si un système ou un catalogue a été chargé.
+    pub fn ouvrir_fichier(&mut self, chemin: &Path) -> bool {
         if est_catalogue_agf(chemin) {
             let (reussi, msg) = match crate::core::glass::importer_catalogue_agf(chemin, true) {
                 Ok(nb) => (
@@ -385,10 +397,10 @@ impl FreeOpticalGuiApp {
             self.statut_message = msg.clone();
             self.bilan_import = Some((reussi, msg, Vec::new()));
             self.recalculer();
-            return;
+            return reussi;
         }
         if est_fichier_zemax(chemin) {
-            match importer_fichier_zemax(chemin) {
+            return match importer_fichier_zemax(chemin) {
                 Ok(import) => {
                     let msg = trf!(
                         "'{}' importé depuis {} ({} avertissement(s)).", "'{}' imported from {} ({} warning(s)).", "'{}' importiert aus {} ({} Warnung(en)).",
@@ -409,16 +421,17 @@ impl FreeOpticalGuiApp {
                         ),
                     );
                     self.bilan_import = Some((true, msg, lignes));
+                    true
                 }
                 Err(e) => {
                     self.statut_message = trf!("ÉCHEC de l'import : {e}", "Import FAILED: {e}", "Import FEHLGESCHLAGEN: {e}");
                     self.bilan_import = Some((false, self.statut_message.clone(), Vec::new()));
+                    false
                 }
-            }
-            return;
+            };
         }
         if est_fichier_teloptik(chemin) {
-            match importer_fichier_teloptik(chemin) {
+            return match importer_fichier_teloptik(chemin) {
                 Ok(import) => {
                     let nom = import.systeme.nom.clone();
                     let msg = trf!(
@@ -439,13 +452,14 @@ impl FreeOpticalGuiApp {
                         ),
                     );
                     self.bilan_import = Some((true, msg, lignes));
+                    true
                 }
                 Err(e) => {
                     self.statut_message = trf!("ÉCHEC de l'import : {e}", "Import FAILED: {e}", "Import FEHLGESCHLAGEN: {e}");
                     self.bilan_import = Some((false, self.statut_message.clone(), Vec::new()));
+                    false
                 }
-            }
-            return;
+            };
         }
         let resultat = std::fs::read_to_string(chemin)
             .map_err(|e| e.to_string())
@@ -454,6 +468,8 @@ impl FreeOpticalGuiApp {
             Ok(sys) if sys.surfaces.len() >= 2 => {
                 let msg = trf!("Système '{}' chargé depuis {}.", "System '{}' loaded from {}.", "System '{}' aus {} geladen.", sys.nom, chemin.display());
                 self.charger_systeme(sys, msg);
+                self.chemin_courant = Some(chemin.to_path_buf());
+                return true;
             }
             Ok(_) => {
                 self.statut_message = trf!(
@@ -463,92 +479,8 @@ impl FreeOpticalGuiApp {
             }
             Err(e) => self.statut_message = trf!("Ouverture de {} impossible : {e}", "Cannot open {}: {e}", "{} kann nicht geöffnet werden: {e}", chemin.display()),
         }
-    }
-
-    fn dessiner_fenetre_import(&mut self, ctx: &Context) {
-        if !self.fenetre_import {
-            return;
-        }
-        let mut ouverte = true;
-        let mut a_ouvrir: Option<PathBuf> = None;
-        let mut fermer = false;
-        egui::Window::new(
-            RichText::new(tr!(" Importer des systèmes ou des catalogues de verres ", " Import systems or glass catalogues ", " Systeme oder Glaskataloge importieren ")).monospace().strong(),
-        )
-        .open(&mut ouverte)
-        .collapsible(false)
-        .resizable(true)
-        .default_width(560.0)
-        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(
-                tr!(
-                    "Systèmes Zemax séquentiels .zmx, systèmes .TDS, .RLD et .DES des programmes \
-                     du livre « Telescope Optics » (Rutten et van Venrooij), ou catalogues de verres \
-                     Zemax .agf (Schott, Ohara, CDGM…). On peut aussi glisser un fichier sur la fenêtre.",
-                    "Sequential Zemax .zmx systems, .TDS, .RLD and .DES systems from the programs of \
-                     the book \"Telescope Optics\" (Rutten and van Venrooij), or Zemax .agf glass \
-                     catalogues (Schott, Ohara, CDGM…). You can also drop a file onto the window.",
-                    "Sequentielle Zemax-Systeme .zmx, .TDS-, .RLD- und .DES-Systeme der Programme aus \
-                     dem Buch „Telescope Optics“ (Rutten und van Venrooij) oder Zemax-Glaskataloge .agf \
-                     (Schott, Ohara, CDGM…). Eine Datei kann auch auf das Fenster gezogen werden."
-                ),
-            );
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label(tr!("Dossier :", "Folder:", "Ordner:"));
-                ui.add(egui::TextEdit::singleline(&mut self.dossier_import).desired_width(440.0));
-            });
-            let dossier = PathBuf::from(self.dossier_import.trim());
-            let mut fichiers: Vec<PathBuf> = std::fs::read_dir(&dossier)
-                .map(|it| {
-                    it.filter_map(|e| e.ok().map(|e| e.path()))
-                        .filter(|p| est_fichier_teloptik(p) || est_fichier_zemax(p) || est_catalogue_agf(p))
-                        .collect()
-                })
-                .unwrap_or_default();
-            fichiers.sort_by_key(|p| p.file_name().map(|n| n.to_ascii_uppercase()));
-            ui.add_space(4.0);
-            if fichiers.is_empty() {
-                ui.label(
-                    RichText::new(tr!("Aucun fichier .TDS / .RLD / .DES / .agf dans ce dossier.", "No .TDS / .RLD / .DES / .agf file in this folder.", "Keine .TDS- / .RLD- / .DES- / .agf-Datei in diesem Ordner.")).color(COL_DOS_ORANGE),
-                );
-            } else {
-                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        for f in &fichiers {
-                            let nom = f.file_name().unwrap_or_default().to_string_lossy();
-                            if ui.button(RichText::new(nom).monospace()).clicked() {
-                                a_ouvrir = Some(f.clone());
-                            }
-                        }
-                    });
-                });
-            }
-            if let Some((reussi, msg, lignes)) = &self.bilan_import {
-                ui.separator();
-                let couleur = if *reussi { COL_DOS_GREEN } else { COL_DOS_RED };
-                ui.label(RichText::new(msg).color(couleur));
-                egui::ScrollArea::vertical()
-                    .id_salt("avertissements_import")
-                    .max_height(180.0)
-                    .show(ui, |ui| {
-                        for l in lignes {
-                            ui.label(RichText::new(format!("• {l}")).color(COL_DOS_YELLOW));
-                        }
-                    });
-            }
-            ui.add_space(6.0);
-            if ui.button(tr!("Fermer", "Close", "Schließen")).clicked() {
-                fermer = true;
-            }
-        });
-        if let Some(f) = a_ouvrir {
-            self.ouvrir_fichier(&f);
-        }
-        if !ouverte || fermer {
-            self.fenetre_import = false;
-        }
+        self.bilan_import = Some((false, self.statut_message.clone(), Vec::new()));
+        false
     }
 
     /// Change la langue de l'interface (titre de fenêtre compris) et l'enregistre
@@ -787,6 +719,17 @@ impl eframe::App for FreeOpticalGuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Raccourcis clavier globaux
+        let (ouvrir, enregistrer, enregistrer_sous) = ctx.input(|i| {
+            let c = i.modifiers.command;
+            (c && i.key_pressed(Key::O), c && !i.modifiers.shift && i.key_pressed(Key::S), c && i.modifiers.shift && i.key_pressed(Key::S))
+        });
+        if ouvrir {
+            self.afficher_fichiers(fichiers::ModeFichiers::Ouvrir);
+        } else if enregistrer {
+            self.enregistrer();
+        } else if enregistrer_sous {
+            self.afficher_fichiers(fichiers::ModeFichiers::Enregistrer);
+        }
         ctx.input(|i| {
             if i.modifiers.shift && i.key_pressed(Key::F1) {
                 self.vue_active = ActiveView::EnergieEncerclee;
@@ -842,95 +785,85 @@ impl eframe::App for FreeOpticalGuiApp {
 
                     ui.menu_button(RichText::new(tr!(" Fichier ", " File ", " Datei ")).monospace().strong(), |ui| {
                         ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
-                        if ui.button(tr!("1. Nouveau système vierge", "1. New empty system", "1. Neues leeres System")).clicked() {
+                        if ui.button(tr!("Nouveau système vierge", "New empty system", "Neues leeres System")).clicked() {
                             self.charger_systeme(
                                 OpticalSystem::nouveau(tr!("Nouveau Système Optique", "New Optical System", "Neues optisches System"), LAMBDA_D_NM),
                                 tr!("Nouveau système optique initialisé.", "New optical system created.", "Neues optisches System angelegt."),
                             );
                             ui.close();
                         }
-                        if ui
-                            .button(tr!("2. Charger Doublet Fraunhofer 100mm (BK7/F2)", "2. Load Fraunhofer Doublet 100mm (BK7/F2)", "2. Fraunhofer-Achromat 100mm laden (BK7/F2)"))
-                            .clicked()
-                        {
-                            self.charger_systeme(
-                                OpticalSystem::doublet_achromatique_defaut(),
-                                tr!("Doublet Achromatique Fraunhofer 100mm chargé.", "Fraunhofer Achromatic Doublet 100mm loaded.", "Fraunhofer-Achromat 100mm geladen."),
-                            );
+                        if ui.button(tr!("Ouvrir…   (Ctrl+O)", "Open…   (Ctrl+O)", "Öffnen…   (Strg+O)")).clicked() {
+                            self.afficher_fichiers(fichiers::ModeFichiers::Ouvrir);
                             ui.close();
                         }
-                        if ui
-                            .button(tr!("3. Charger Interféromètre de Bath (Laser He-Ne 632.8 nm)", "3. Load Bath Interferometer (He-Ne Laser 632.8 nm)", "3. Bath-Interferometer laden (He-Ne-Laser 632.8 nm)"))
-                            .clicked()
-                        {
-                            self.charger_systeme(
-                                creer_interferometre_bath(),
-                                tr!(
-                                    "Miroir au centre de courbure (montage de Bath) chargé : interférogramme dans Outils > Interféromètre de Bath.",
-                                    "Mirror at centre of curvature (Bath set-up) loaded: interferogram in Tools > Bath interferometer.",
-                                    "Spiegel im Krümmungsmittelpunkt (Bath-Aufbau) geladen: Interferogramm unter Werkzeuge > Bath-Interferometer."
-                                ),
-                            );
+                        if ui.button(tr!("Enregistrer   (Ctrl+S)", "Save   (Ctrl+S)", "Speichern   (Strg+S)")).clicked() {
+                            self.enregistrer();
                             ui.close();
                         }
-                        if ui
-                            .button(tr!("4. Charger Singlet Asphérique F/2 (LAK9)", "4. Load Aspheric Singlet F/2 (LAK9)", "4. Asphärische Einzellinse F/2 laden (LAK9)"))
-                            .clicked()
-                        {
-                            self.charger_systeme(
-                                creer_singlet_aspherique(),
-                                tr!("Singlet Asphérique F/2 (LAK9) chargé.", "Aspheric Singlet F/2 (LAK9) loaded.", "Asphärische Einzellinse F/2 (LAK9) geladen."),
-                            );
-                            ui.close();
-                        }
-                        if ui
-                            .button(tr!("5. Charger Télescope Cassegrain (Miroirs)", "5. Load Cassegrain Telescope (Mirrors)", "5. Cassegrain-Teleskop laden (Spiegel)"))
-                            .clicked()
-                        {
-                            self.charger_systeme(
-                                creer_telescope_cassegrain(),
-                                tr!("Télescope Cassegrain à miroirs chargé.", "Cassegrain mirror telescope loaded.", "Cassegrain-Spiegelteleskop geladen."),
-                            );
-                            ui.close();
-                        }
-                        if ui
-                            .button(tr!("Charger un spectrographe à réseau (exemple)", "Load a grating spectrograph (example)", "Gitterspektrograph laden (Beispiel)"))
-                            .clicked()
-                        {
-                            self.charger_systeme(
-                                crate::core::presets::creer_spectrographe_reseau(),
-                                tr!("Spectrographe à réseau chargé : vue F12.", "Grating spectrograph loaded: view F12.", "Gitterspektrograph geladen: Ansicht F12."),
-                            );
-                            self.vue_active = ActiveView::Spectre;
-                            ui.close();
-                        }
-                        if ui
-                            .button(tr!("6. Importer Zemax (.zmx), TDESIGN / LENSDES / RAYTRACE ou un catalogue de verres (.agf)…", "6. Import Zemax (.zmx), TDESIGN / LENSDES / RAYTRACE or a glass catalogue (.agf)…", "6. Zemax (.zmx), TDESIGN / LENSDES / RAYTRACE oder Glaskatalog (.agf) importieren…"))
-                            .clicked()
-                        {
-                            self.bilan_import = None;
-                            self.fenetre_import = true;
+                        if ui.button(tr!("Enregistrer sous…   (Ctrl+Maj+S)", "Save as…   (Ctrl+Shift+S)", "Speichern unter…   (Strg+Umschalt+S)")).clicked() {
+                            self.afficher_fichiers(fichiers::ModeFichiers::Enregistrer);
                             ui.close();
                         }
                         ui.separator();
-                        if ui
-                            .button(tr!("7. Sauvegarder dans systeme_optique.json", "7. Save to systeme_optique.json", "7. In systeme_optique.json speichern"))
-                            .clicked()
-                        {
-                            self.statut_message = sauvegarder_systeme(&self.systeme);
-                            ui.close();
-                        }
-                        if ui
-                            .button(tr!("8. Recharger systeme_optique.json", "8. Reload systeme_optique.json", "8. systeme_optique.json neu laden"))
-                            .clicked()
-                        {
-                            match charger_systeme_fichier() {
-                                Ok((sys, msg)) => self.charger_systeme(sys, msg),
-                                Err(msg) => self.statut_message = msg,
+                        ui.menu_button(tr!("Exemples", "Examples", "Beispiele"), |ui| {
+                            if ui
+                                .button(tr!("Doublet Fraunhofer 100 mm (BK7/F2)", "Fraunhofer doublet 100 mm (BK7/F2)", "Fraunhofer-Achromat 100 mm (BK7/F2)"))
+                                .clicked()
+                            {
+                                self.charger_systeme(
+                                    OpticalSystem::doublet_achromatique_defaut(),
+                                    tr!("Doublet Achromatique Fraunhofer 100mm chargé.", "Fraunhofer Achromatic Doublet 100mm loaded.", "Fraunhofer-Achromat 100mm geladen."),
+                                );
+                                ui.close();
                             }
-                            ui.close();
-                        }
-                        if ui.button(tr!("9. Quitter", "9. Quit", "9. Beenden")).clicked() {
+                            if ui
+                                .button(tr!("Interféromètre de Bath (laser He-Ne 632,8 nm)", "Bath interferometer (He-Ne laser 632.8 nm)", "Bath-Interferometer (He-Ne-Laser 632,8 nm)"))
+                                .clicked()
+                            {
+                                self.charger_systeme(
+                                    creer_interferometre_bath(),
+                                    tr!(
+                                        "Miroir au centre de courbure (montage de Bath) chargé : interférogramme dans Outils > Interféromètre de Bath.",
+                                        "Mirror at centre of curvature (Bath set-up) loaded: interferogram in Tools > Bath interferometer.",
+                                        "Spiegel im Krümmungsmittelpunkt (Bath-Aufbau) geladen: Interferogramm unter Werkzeuge > Bath-Interferometer."
+                                    ),
+                                );
+                                ui.close();
+                            }
+                            if ui
+                                .button(tr!("Singlet asphérique F/2 (LAK9)", "Aspheric singlet F/2 (LAK9)", "Asphärische Einzellinse F/2 (LAK9)"))
+                                .clicked()
+                            {
+                                self.charger_systeme(
+                                    creer_singlet_aspherique(),
+                                    tr!("Singlet Asphérique F/2 (LAK9) chargé.", "Aspheric Singlet F/2 (LAK9) loaded.", "Asphärische Einzellinse F/2 (LAK9) geladen."),
+                                );
+                                ui.close();
+                            }
+                            if ui
+                                .button(tr!("Télescope Cassegrain (miroirs)", "Cassegrain telescope (mirrors)", "Cassegrain-Teleskop (Spiegel)"))
+                                .clicked()
+                            {
+                                self.charger_systeme(
+                                    creer_telescope_cassegrain(),
+                                    tr!("Télescope Cassegrain à miroirs chargé.", "Cassegrain mirror telescope loaded.", "Cassegrain-Spiegelteleskop geladen."),
+                                );
+                                ui.close();
+                            }
+                            if ui
+                                .button(tr!("Spectrographe à réseau", "Grating spectrograph", "Gitterspektrograph"))
+                                .clicked()
+                            {
+                                self.charger_systeme(
+                                    crate::core::presets::creer_spectrographe_reseau(),
+                                    tr!("Spectrographe à réseau chargé : vue F12.", "Grating spectrograph loaded: view F12.", "Gitterspektrograph geladen: Ansicht F12."),
+                                );
+                                self.vue_active = ActiveView::Spectre;
+                                ui.close();
+                            }
+                        });
+                        ui.separator();
+                        if ui.button(tr!("Quitter", "Quit", "Beenden")).clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     });
@@ -1247,7 +1180,7 @@ impl eframe::App for FreeOpticalGuiApp {
             });
 
         self.dessiner_fenetre_maj(&ctx);
-        self.dessiner_fenetre_import(&ctx);
+        self.dessiner_fenetre_fichiers(&ctx);
         self.dessiner_fenetre_optimisation(&ctx);
         self.dessiner_fenetre_systeme(&ctx);
         self.dessiner_fenetre_bath(&ctx);
@@ -1262,6 +1195,8 @@ impl eframe::App for FreeOpticalGuiApp {
         } else if let Some(chemin) = depose {
             self.ouvrir_fichier(&chemin);
             if est_fichier_teloptik(&chemin) || est_fichier_zemax(&chemin) || est_catalogue_agf(&chemin) {
+                // Bilan de l'import (avertissements) dans la fenêtre Ouvrir
+                self.mode_fichiers = fichiers::ModeFichiers::Ouvrir;
                 self.fenetre_import = true;
             }
         }
@@ -1433,7 +1368,7 @@ impl FreeOpticalGuiApp {
                     }
                 });
                 for a in &self.alertes_solves {
-                    ui.label(RichText::new(format!("⚠ {a}")).monospace().color(COL_DOS_ORANGE));
+                    ui.label(RichText::new(format!("(!) {a}")).monospace().color(COL_DOS_ORANGE));
                 }
                 ui.add_space(4.0);
             }
@@ -2568,35 +2503,6 @@ pub(super) fn couleur_spectre(longueur_onde_nm: f64) -> Color32 {
     Color32::from_rgb((55.0 + 200.0 * r) as u8, (55.0 + 200.0 * g) as u8, (55.0 + 200.0 * b) as u8)
 }
 
-/// Sauvegarde le système dans `systeme_optique.json` et retourne le message de statut
-fn sauvegarder_systeme(sys: &OpticalSystem) -> String {
-    let resultat = serde_json::to_string_pretty(sys)
-        .map_err(|e| e.to_string())
-        .and_then(|json| std::fs::write(FICHIER_SYSTEME, json).map_err(|e| e.to_string()));
-    let chemin = std::env::current_dir()
-        .map(|d| d.join(FICHIER_SYSTEME).display().to_string())
-        .unwrap_or_else(|_| FICHIER_SYSTEME.to_string());
-    match resultat {
-        Ok(()) => trf!("Système sauvegardé dans '{}'.", "System saved to '{}'.", "System in '{}' gespeichert.", chemin),
-        Err(e) => trf!("ÉCHEC de la sauvegarde dans '{}' : {}", "FAILED to save to '{}': {}", "FEHLER beim Speichern in '{}': {}", chemin, e),
-    }
-}
-
-/// Relit `systeme_optique.json` depuis le répertoire courant
-fn charger_systeme_fichier() -> Result<(OpticalSystem, String), String> {
-    let contenu = std::fs::read_to_string(FICHIER_SYSTEME)
-        .map_err(|e| trf!("Lecture de '{}' impossible : {}", "Cannot read '{}': {}", "'{}' kann nicht gelesen werden: {}", FICHIER_SYSTEME, e))?;
-    let sys = serde_json::from_str::<OpticalSystem>(&contenu)
-        .map_err(|e| trf!("Fichier '{}' invalide : {}", "Invalid file '{}': {}", "Ungültige Datei '{}': {}", FICHIER_SYSTEME, e))?;
-    if sys.surfaces.len() < 2 {
-        return Err(trf!(
-            "Fichier '{}' invalide : il faut au moins une surface et un plan image.", "Invalid file '{}': at least one surface and an image plane are required.", "Ungültige Datei '{}': mindestens eine Fläche und eine Bildebene sind nötig.",
-            FICHIER_SYSTEME
-        ));
-    }
-    let msg = trf!("Système '{}' rechargé depuis '{}'.", "System '{}' reloaded from '{}'.", "System '{}' aus '{}' neu geladen.", sys.nom, FICHIER_SYSTEME);
-    Ok((sys, msg))
-}
 
 #[cfg(test)]
 mod tests {
