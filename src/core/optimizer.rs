@@ -507,6 +507,7 @@ mod tests_merite {
             catalogue: Default::default(),
             distance_objet_mm: None,
             afocal: false,
+            tolerances: Vec::new(),
         };
         let vars = vec![OptimizationVariable { index_surface: 0, parametre: "conique".into() }];
         optimiser_systeme_dls(&mut sys, &vars, &[cible("opd_rms_champs", 0.0)], 30);
@@ -530,6 +531,7 @@ mod tests_merite {
             catalogue: Default::default(),
             distance_objet_mm: None,
             afocal: false,
+            tolerances: Vec::new(),
         };
         let avant = calculer_spot_diagram(&sys, (0.0, 0.0), 6).rayon_rms_um;
         let vars = vec![OptimizationVariable { index_surface: 0, parametre: "a4".into() }];

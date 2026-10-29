@@ -49,6 +49,7 @@ pub fn creer_interferometre_bath() -> OpticalSystem {
         catalogue: Default::default(),
         distance_objet_mm: None,
         afocal: false,
+        tolerances: Vec::new(),
     }
 }
 
@@ -74,6 +75,7 @@ pub fn creer_singlet_aspherique() -> OpticalSystem {
         catalogue: Default::default(),
         distance_objet_mm: None,
         afocal: false,
+        tolerances: Vec::new(),
     }
 }
 
@@ -101,6 +103,7 @@ pub fn creer_telescope_cassegrain() -> OpticalSystem {
         catalogue: Default::default(),
         distance_objet_mm: None,
         afocal: false,
+        tolerances: Vec::new(),
     }
 }
 
@@ -134,6 +137,7 @@ pub fn creer_spectrographe_reseau() -> OpticalSystem {
         catalogue: Default::default(),
         distance_objet_mm: Some(200.0),
         afocal: false,
+        tolerances: Vec::new(),
     }
 }
 

@@ -16,5 +16,6 @@ pub mod raytracer;
 pub mod solves;
 pub mod spectre;
 pub mod teloptik;
+pub mod tolerance;
 pub mod types;
 pub mod zemax;

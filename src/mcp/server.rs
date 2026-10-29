@@ -125,6 +125,27 @@ pub struct ImporterTeloptikParams {
     pub chemin: String,
 }
 
+/// Paramètres de l'outil MCP `tolerancer`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct TolerancerParams {
+    /// Tolérances, ex. `[{"type":"Franges","surface":1,"min":-2,"max":2},
+    /// {"type":"InclinaisonElementX","surface":1,"derniere":3,"min":-0.0167,"max":0.0167}]`
+    /// (surfaces numérotées à partir de 1). Types : Rayon, Franges, Epaisseur, Conique,
+    /// DecentrementX/Y, InclinaisonX/Y (degrés), DecentrementElementX/Y, InclinaisonElementX/Y,
+    /// Indice, Abbe (%). Absentes : celles du système, sinon un jeu par défaut
+    pub tolerances: Option<Vec<crate::core::tolerance::Tolerance>>,
+    /// Vrai pour prendre le jeu par défaut même si le système a ses tolérances
+    pub par_defaut: Option<bool>,
+    /// Vrai pour enregistrer les tolérances utilisées dans le système
+    pub enregistrer_dans_systeme: Option<bool>,
+    /// Critère (`{"type":"SpotRms"}`, `{"type":"FrontOndeRms"}`, `{"type":"Ftm","frequence":30}`),
+    /// compensateur (`MeilleureMiseAuPoint`, `MiseAuPointParaxiale`, `Aucun`), nombre de tirages
+    /// Monte-Carlo (100 par défaut, 0 = sensibilités seules), loi (`Normale`, `Uniforme`), graine
+    pub reglages: Option<crate::core::tolerance::ReglagesTolerance>,
+    /// Vrai pour retourner aussi la valeur du critère de chaque tirage
+    pub valeurs_monte_carlo: Option<bool>,
+}
+
 /// Paramètres de l'outil MCP `analyser_empreinte`
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub struct AnalyserEmpreinteParams {
@@ -288,7 +309,12 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 19] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 20] = [
+    (
+        "tolerancer",
+        "Tolerancing as in Zemax: sensitivities (each tolerance alone at its minimum and maximum, focus compensator readjusted), RSS estimate and Monte Carlo (all tolerances drawn together, normal or uniform law, reproducible seed). Tolerances: radius, power in fringes, thickness, conic, surface decenter/tilt, element decenter/tilt (pair of coordinate breaks), glass index and Abbe number. Criterion: RMS spot, RMS wavefront or MTF at a frequency. Without tolerances, uses those of the system or a default set.",
+        "Tolerierung wie in Zemax: Empfindlichkeiten (jede Toleranz allein bei Minimum und Maximum, Fokus-Kompensator nachgestellt), RSS-Schätzung und Monte-Carlo (alle Toleranzen gemeinsam gezogen, Normal- oder Gleichverteilung, reproduzierbarer Startwert). Toleranzen: Radius, Passe in Ringen, Dicke, Konik, Dezentrierung/Kippung von Flächen und Elementen (Paar von Koordinatenbrüchen), Brechzahl und Abbe-Zahl des Glases. Kriterium: RMS-Fleck, RMS-Wellenfront oder MTF bei einer Frequenz. Ohne Toleranzen werden die des Systems oder ein Standardsatz verwendet.",
+    ),
     (
         "importer_zemax",
         "Imports a sequential Zemax OpticStudio lens file (.zmx, UTF-16 or ASCII) and makes it the current system: standard, even-asphere, coordinate-break, paraxial and grating surfaces, glasses (catalogue name or nd/Vd model), apertures and obscurations, pupil, fields (angles, object or image heights), wavelengths. Solves are imported as frozen values. Returns the system, its paraxial data and the items not imported.",
@@ -680,6 +706,73 @@ impl FreeOpticalMcpServer {
             "couleur_laterale": ou_erreur(crate::core::chromatique::calculer_couleur_laterale(&sys, 11).map(|c| serde_json::to_value(c).unwrap_or_default())),
         })
         .to_string()
+    }
+
+    /// Tolérancement : sensibilités, estimation RSS, Monte-Carlo.
+    #[tool(
+        name = "tolerancer",
+        description = "Tolérancement comme dans Zemax : sensibilités (chaque tolérance seule à son minimum et à son maximum, compensateur de mise au point réajusté), estimation RSS et Monte-Carlo (toutes les tolérances tirées ensemble, loi normale ou uniforme, graine reproductible). Tolérances : rayon, puissance en franges, épaisseur, conique, décentrement/inclinaison de surface, décentrement/inclinaison d'élément (paire de ruptures de repère), indice et constringence du verre. Critère : tache RMS, front d'onde RMS ou FTM à une fréquence. Sans tolérances, prend celles du système ou un jeu par défaut."
+    )]
+    pub async fn tolerancer(&self, Parameters(params): Parameters<TolerancerParams>) -> String {
+        let mut sys = self.systeme.lock().unwrap().clone();
+        let ops = match params.tolerances {
+            Some(t) => t,
+            None if params.par_defaut != Some(true) && !sys.tolerances.is_empty() => sys.tolerances.clone(),
+            None => crate::core::tolerance::tolerances_par_defaut(&sys),
+        };
+        if params.enregistrer_dans_systeme == Some(true) {
+            self.systeme.lock().unwrap().tolerances = ops.clone();
+            sys.tolerances = ops.clone();
+        }
+        let reglages = params.reglages.unwrap_or_default();
+        let (s2, o2, r2) = (sys, ops.clone(), reglages.clone());
+        let resultat = tokio::task::spawn_blocking(move || {
+            use std::sync::atomic::{AtomicBool, AtomicUsize};
+            crate::core::tolerance::tolerancer(&s2, &o2, &r2, &AtomicUsize::new(0), &AtomicBool::new(false))
+        })
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|r| r);
+        match resultat {
+            Ok(r) => {
+                let mc = r.monte_carlo.as_ref().map(|m| {
+                    serde_json::json!({
+                        "tirages": m.valeurs.len(),
+                        "moyenne": m.moyenne,
+                        "ecart_type": m.ecart_type,
+                        "meilleur": m.meilleur,
+                        "pire": m.pire,
+                        "centiles": m.centiles,
+                        "compensation_moyenne_mm": m.compensation_moyenne,
+                        "compensation_max_mm": m.compensation_max,
+                        "index_pire": m.index_pire,
+                        "echecs": m.nb_echecs,
+                        "valeurs": if params.valeurs_monte_carlo == Some(true) { serde_json::to_value(&m.valeurs).unwrap_or_default() } else { serde_json::Value::Null },
+                    })
+                });
+                serde_json::json!({
+                    "critere": r.critere.libelle(),
+                    "nominal": r.nominal,
+                    "degradation_rss": r.degradation_rss,
+                    "critere_estime": r.critere_estime,
+                    "sensibilites": r.lignes.iter().map(|l| serde_json::json!({
+                        "tolerance": l.libelle,
+                        "min": l.tolerance.min,
+                        "max": l.tolerance.max,
+                        "critere_min": l.critere_min,
+                        "critere_max": l.critere_max,
+                        "pire_degradation": l.pire(),
+                        "mise_au_point_min_mm": l.compensation_min,
+                        "mise_au_point_max_mm": l.compensation_max,
+                    })).collect::<Vec<_>>(),
+                    "monte_carlo": mc,
+                    "avertissements": r.avertissements,
+                    "tolerances": ops,
+                })
+                .to_string()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
     }
 
     /// Empreinte des faisceaux et demi-diamètres nécessaires.
@@ -1197,6 +1290,19 @@ mod tests {
         assert_eq!(f["empreinte"]["nb_vignettes"].as_u64(), Some(0), "{f}");
         let requis = f["demi_diametres_requis_mm"][0].as_f64().unwrap();
         assert!((f["demi_diametres_mm"][0].as_f64().unwrap() - requis).abs() < 1e-3);
+        // Tolérancement par défaut, sensibilités et 20 tirages
+        let t: serde_json::Value = serde_json::from_str(
+            &srv.tolerancer(Parameters(TolerancerParams {
+                reglages: Some(crate::core::tolerance::ReglagesTolerance { nb_tirages: 20, ..Default::default() }),
+                enregistrer_dans_systeme: Some(true),
+                ..Default::default()
+            }))
+            .await,
+        )
+        .unwrap();
+        assert!(t["nominal"].as_f64().unwrap() > 0.0 && t["monte_carlo"]["tirages"] == 20, "{t}");
+        assert!(t["sensibilites"].as_array().unwrap().len() > 5);
+        assert!(!srv.systeme.lock().unwrap().tolerances.is_empty());
         // Import Zemax : erreur propre sur un fichier absent
         let z = srv.importer_zemax(Parameters(ImporterTeloptikParams { chemin: "/inexistant.zmx".into() })).await;
         assert!(z.contains("erreur"));

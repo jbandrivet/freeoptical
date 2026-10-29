@@ -10,6 +10,7 @@ mod systeme;
 mod fichiers;
 mod ondes;
 mod solves;
+mod tolerances;
 
 use crate::{
     i18n::{self, Langue},
@@ -310,6 +311,8 @@ pub struct FreeOpticalGuiApp {
     /// Spot diagram : chaque longueur d'onde autour de son propre centroïde (spectrographes)
     pub spot_par_lambda: bool,
     pub reglages_optim: optimisation::ReglagesOptimisation,
+    /// Fenêtre et analyse de tolérancement
+    pub tolerance: tolerances::EtatTolerance,
     /// Résultat du dernier import (réussi, message, avertissements) affiché dans la fenêtre d'import
     pub bilan_import: Option<(bool, String, Vec<String>)>,
     /// Interféromètre de Bath (simulation, réduction, analyse de photos)
@@ -354,6 +357,7 @@ impl FreeOpticalGuiApp {
             fenetre_systeme: false,
             spot_par_lambda: false,
             reglages_optim: optimisation::ReglagesOptimisation::default(),
+            tolerance: tolerances::EtatTolerance::default(),
             dossier_import: fichiers::dossier_initial(),
             mode_fichiers: fichiers::ModeFichiers::Ouvrir,
             nom_enregistrement: String::new(),
@@ -1089,6 +1093,13 @@ impl eframe::App for FreeOpticalGuiApp {
                             ui.close();
                         }
                         if ui
+                            .button(tr!("Tolérancement (sensibilités, Monte-Carlo)…", "Tolerancing (sensitivities, Monte Carlo)…", "Tolerierung (Empfindlichkeiten, Monte-Carlo)…"))
+                            .clicked()
+                        {
+                            self.ouvrir_tolerancement();
+                            ui.close();
+                        }
+                        if ui
                             .button(tr!("Mise au point paraxiale automatique (Tirage BFL)", "Automatic paraxial focus (BFL)", "Automatische paraxiale Fokussierung (Schnittweite BFL)"))
                             .clicked()
                         {
@@ -1278,6 +1289,7 @@ impl eframe::App for FreeOpticalGuiApp {
         self.dessiner_fenetre_fichiers(&ctx);
         self.dessiner_confirmation_fermeture(&ctx);
         self.dessiner_fenetre_optimisation(&ctx);
+        self.dessiner_fenetre_tolerancement(&ctx);
         self.dessiner_fenetre_systeme(&ctx);
         self.dessiner_fenetre_bath(&ctx);
 

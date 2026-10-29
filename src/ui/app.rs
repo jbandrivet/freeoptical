@@ -284,6 +284,11 @@ pub fn items_menu(menu_idx: usize) -> Vec<&'static str> {
                 "3. Recompute the whole simulation (R)",
                 "3. Gesamte Simulation neu berechnen (R)"
             ),
+            tr!(
+                "4. Tolérancement (tache RMS, 100 tirages Monte-Carlo)",
+                "4. Tolerancing (RMS spot, 100 Monte Carlo trials)",
+                "4. Tolerierung (RMS-Fleck, 100 Monte-Carlo-Läufe)"
+            ),
         ],
         _ => Langue::TOUTES.iter().map(|l| l.nom_natif()).collect(),
     }
@@ -493,6 +498,30 @@ impl AppState {
                 nouveau
             );
         }
+    }
+
+    /// Tolérancement (tolérances du système, sinon jeu par défaut) : synthèse dans la ligne d'état
+    pub fn tolerancement_rapide(&mut self) {
+        use crate::core::tolerance as ct;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        let ops = if self.systeme.tolerances.is_empty() { ct::tolerances_par_defaut(&self.systeme) } else { self.systeme.tolerances.clone() };
+        let r = ct::ReglagesTolerance::default();
+        self.statut_message = match ct::tolerancer(&self.systeme, &ops, &r, &AtomicUsize::new(0), &AtomicBool::new(false)) {
+            Ok(res) => {
+                let p90 = res.monte_carlo.as_ref().and_then(|m| m.centiles.iter().find(|c| c.0 == 90.0)).map(|c| c.1).unwrap_or(f64::NAN);
+                trf!(
+                    "Tolérancement ({} tolérances) : tache {:.2} µm nominale, {:.2} estimée (RSS), 90 % des tirages ≤ {:.2} µm ; la plus pénalisante : {}",
+                    "Tolerancing ({} tolerances): spot {:.2} µm nominal, {:.2} estimated (RSS), 90% of trials ≤ {:.2} µm; worst: {}",
+                    "Tolerierung ({} Toleranzen): Fleck {:.2} µm nominal, {:.2} geschätzt (RSS), 90 % der Läufe ≤ {:.2} µm; schlimmste: {}",
+                    ops.len(),
+                    res.nominal,
+                    res.critere_estime,
+                    p90,
+                    res.lignes.first().map(|l| l.libelle.clone()).unwrap_or_default()
+                )
+            }
+            Err(e) => e,
+        };
     }
 
     /// Insère une nouvelle surface à la position courante
@@ -760,6 +789,7 @@ impl AppState {
             // Menu Outils
             (3, 0) => self.lancer_optimisation_rapide(),
             (3, 1) => self.mise_au_point_paraxiale(),
+            (3, 3) => self.tolerancement_rapide(),
             (4, i) => {
                 if let Some(&l) = Langue::TOUTES.get(i) {
                     self.changer_langue(l);

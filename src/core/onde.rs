@@ -899,6 +899,7 @@ mod tests {
             catalogue: Default::default(),
             distance_objet_mm: None,
             afocal: false,
+            tolerances: Vec::new(),
         }
     }
 

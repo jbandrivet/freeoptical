@@ -9,7 +9,7 @@
 **Free sequential optical design and simulation software for Linux: graphical interface, terminal interface and MCP server.**
 
 FreeOptical lets you design any optical system (objective, refractor, mirror telescope, test setup…) surface by surface, then analyse and optimize it. It is written in **Rust** (`egui`, `ratatui`, `nalgebra`, `rmcp`) and combines:
-1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces, coordinate breaks for folded systems, solves and pickups (automatic focus, imposed F-number, aplanatic surface, copied values), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, encircled energy, chromatic focal shift and lateral colour, beam footprints and required semi-diameters, import of Zemax `.zmx` files, and Damped Least Squares optimization over all fields and colours; mirror testing with the Bath interferometer (simulation, reduction, analysis of interferogram photos).
+1. **A 3D sequential ray tracing engine**: ABCD paraxial calculation, vector Snell's law, flat, spherical, conic and even aspheric surfaces, mirrors, tilted and decentered surfaces, coordinate breaks for folded systems, solves and pickups (automatic focus, imposed F-number, aplanatic surface, copied values), central obstructions, diffraction gratings, real glasses (Sellmeier formulas, Zemax `.agf` catalogues: Schott, Ohara, CDGM…), polychromatic spot diagram, longitudinal spherical aberration, optical path difference (OPD) and wavefront with Zernike polynomials, Strehl ratio, diffraction PSF and MTF, ray fans, field curvature, distortion, Seidel coefficients, encircled energy, chromatic focal shift and lateral colour, beam footprints and required semi-diameters, import of Zemax `.zmx` files, tolerancing (sensitivities and Monte Carlo), and Damped Least Squares optimization over all fields and colours; mirror testing with the Bath interferometer (simulation, reduction, analysis of interferogram photos).
 2. **A graphical interface and a terminal interface (`--tui`) in English, French or German**: Lens Data Editor (LDE), 2D cross section with ray trace, rotatable 3D view, spot diagram, LSA, glass catalogue, wavefront, PSF and MTF. Start from an empty system (`File` → `New empty system`) or from one of the bundled examples.
 3. **A built-in Model Context Protocol (MCP) server** letting an AI agent design, simulate and optimize optical systems.
 
@@ -110,6 +110,15 @@ Views `F6`, `F7` and `F8` (graphical window and TUI) apply to the chosen field a
 - Checked by the tests: sphere without separation = null fringe, exact fringe adjustments, Bath astigmatism and paraboloid spherical aberration matching the formulas, conic and errors recovered; on simulated photos (noise, Gaussian illumination, central obstruction), conic recovered within ±0.005 and RMS within ±0.003 λ, disc located to better than one pixel.
 - The example `File` → `Load Bath Interferometer` is the matching sequential set-up: ideal Bath lens (its aberrations cancel in the real set-up) and mirror as the pupil; its wavefront (F6) shows the mirror's departure from the sphere.
 
+#### Tolerancing
+`Tools` → `Tolerancing…` (TUI `Tools` menu, MCP tool `tolerancer`). Tolerances are saved with the system; “Default tolerances” suggests a full, editable set: 2 fringes of power, ±0.05 mm thickness, ±0.01 conic, lenses decentered ±0.02 mm and tilted ±1', faces tilted ±1' (wedge), mirrors decentered ±0.05 mm and tilted ±1', index ±0.0005, Abbe number ±0.5%.
+- **Tolerances**: radius (mm), power in fringes (Newton rings at 546.1 nm over the clear aperture), thickness, conic, surface decenter and tilt, decenter and tilt of a whole **element** (lens, group: a pair of coordinate breaks about the vertex of its first surface, as in Zemax), glass index and Abbe number (the perturbed glass is a copy of the catalogue glass, dispersion formula included).
+- **Criterion**: RMS spot (µm), RMS wavefront (λ, all colours referred to the same image point) or polychromatic MTF at a frequency, averaged over the fields. Pupil sampled by Gaussian quadrature (exact for third-order aberrations).
+- **Compensator**: best focus (default), paraxial focus or none; the system's solves stay active (a pickup follows its surface).
+- **Sensitivities**: each tolerance alone at its minimum and maximum, from worst to least harmful, with the refocus; **RSS estimate** of the overall change.
+- **Monte Carlo**: all tolerances drawn together (normal law truncated at ±2σ or uniform, reproducible seed), computed on all cores: mean, standard deviation, percentiles (“90% of trials do better than…”), histogram; the worst trial can be inspected in the editor, then the nominal system restored.
+- Checked by the tests: ±0.01 conic on a paraboloid matching W040/√180, exact perturbed glasses (Δn, ΔV), element put back in place at zero perturbation, reproducible trials.
+
 #### Solves and pickups
 Automatic calculations redone before every analysis and at every optimizer step (a computed parameter cannot be a variable), surface by surface, radius before thickness:
 - **Thickness**: *marginal ray height* (the marginal ray reaches height `h` on the next surface; `h = 0` = focus; `zone` ≠ 0: real ray at that pupil fraction, 0.7071 for best focus with spherical aberration), *chief ray height* (`h = 0`: next surface in a pupil).
@@ -152,6 +161,7 @@ freeoptical --mcp
 - `optimiser_systeme(variables, cibles)`: runs the Damped Least Squares (DLS) optimizer.
 - `importer_teloptik(chemin)`: imports a `.TDS`, `.RLD` or `.DES` file (TDESIGN, LENSDES, RAYTRACE) as the current system.
 - `importer_zemax(chemin)`: imports a sequential Zemax `.zmx` file as the current system.
+- `tolerancer(tolerances, par_defaut, enregistrer_dans_systeme, reglages, valeurs_monte_carlo)`: sensitivities, RSS estimate and Monte Carlo.
 - `analyser_energie_encerclee(champ_index)`: geometric, diffraction and Airy encircled energy, 50% and 80% radii.
 - `analyser_chromatisme()`: chromatic focal shift and lateral colour.
 - `analyser_empreinte(index_surface, ajuster_demi_diametres, points)`: beam footprint on a surface and required semi-diameters (applied on request).

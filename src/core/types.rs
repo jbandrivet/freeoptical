@@ -550,6 +550,9 @@ pub struct OpticalSystem {
     /// Catalogue de matériaux optiques (les verres standards restent toujours disponibles)
     #[serde(default)]
     pub catalogue: GlassCatalog,
+    /// Tolérances de fabrication et d'alignement (éditeur de tolérances)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tolerances: Vec<crate::core::tolerance::Tolerance>,
 }
 
 impl Default for OpticalSystem {
@@ -577,6 +580,7 @@ impl OpticalSystem {
             catalogue: GlassCatalog::standard(),
             distance_objet_mm: None,
             afocal: false,
+            tolerances: Vec::new(),
         }
     }
 
@@ -605,6 +609,7 @@ impl OpticalSystem {
             catalogue: GlassCatalog::standard(),
             distance_objet_mm: None,
             afocal: false,
+            tolerances: Vec::new(),
         }
     }
 

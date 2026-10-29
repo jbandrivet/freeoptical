@@ -16,15 +16,47 @@ pub const LAMBDA_C_NM: f64 = 656.2725; // Raie C (Hydrogène rouge)
 pub struct FormuleDispersion {
     pub numero: u32,
     pub coefficients: Vec<f64>,
+    /// Écart d'indice ajouté partout (tolérance sur l'indice) : n' = n + décalage
+    #[serde(default, skip_serializing_if = "est_zero")]
+    pub decalage: f64,
+    /// Facteur appliqué à la dispersion autour de nd (tolérance sur la constringence) :
+    /// n' = nd + facteur · (n − nd)
+    #[serde(default = "un", skip_serializing_if = "est_un")]
+    pub facteur_dispersion: f64,
+}
+
+fn est_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+fn un() -> f64 {
+    1.0
+}
+fn est_un(v: &f64) -> bool {
+    *v == 1.0
 }
 
 impl FormuleDispersion {
     pub fn sellmeier(b1: f64, c1: f64, b2: f64, c2: f64, b3: f64, c3: f64) -> Self {
-        Self { numero: 2, coefficients: vec![b1, c1, b2, c2, b3, c3] }
+        Self::nouvelle(2, vec![b1, c1, b2, c2, b3, c3])
     }
 
-    /// Indice à la longueur d'onde `l` (µm) ; `None` si la formule est inconnue ou hors domaine
+    pub fn nouvelle(numero: u32, coefficients: Vec<f64>) -> Self {
+        Self { numero, coefficients, decalage: 0.0, facteur_dispersion: 1.0 }
+    }
+
+    /// Indice à la longueur d'onde `l` (µm), écarts de tolérance compris ; `None` si la formule
+    /// est inconnue ou hors domaine
     pub fn indice(&self, l: f64) -> Option<f64> {
+        let n = self.indice_brut(l)?;
+        if self.facteur_dispersion == 1.0 {
+            return Some(n + self.decalage);
+        }
+        let nd = self.indice_brut(LAMBDA_D_NM * 1e-3)?;
+        Some(nd + self.facteur_dispersion * (n - nd) + self.decalage)
+    }
+
+    /// Indice donné par la formule seule
+    fn indice_brut(&self, l: f64) -> Option<f64> {
         let c = |i: usize| self.coefficients.get(i).copied().unwrap_or(0.0);
         let l2 = l * l;
         let sellmeier = |termes: usize| -> f64 {
@@ -221,7 +253,7 @@ pub fn lire_agf(octets: &[u8], origine: &str) -> Result<Vec<Material>, String> {
     let mut courant: Option<(String, u32, f64, f64)> = None;
     let terminer = |c: Option<(String, u32, f64, f64)>, coefficients: Vec<f64>, verres: &mut Vec<Material>| {
         if let Some((nom, numero, nd, vd)) = c {
-            let formule = FormuleDispersion { numero, coefficients };
+            let formule = FormuleDispersion::nouvelle(numero, coefficients);
             let mut m = Material::verre_formule(&nom, formule.clone(), origine);
             // Formule inconnue ou sans coefficients : verre modèle d'après nd et Vd du catalogue
             if formule.indice(0.5875618).is_none_or(|n| (n - nd).abs() > 1e-3) && nd > 1.0 {
@@ -318,6 +350,11 @@ impl GlassCatalog {
     /// Catalogue standard (verres intégrés et catalogues importés)
     pub fn standard() -> Self {
         Self::default()
+    }
+
+    /// Ajoute ou remplace un matériau du système (verre perturbé du tolérancement, par exemple)
+    pub fn ajouter_materiau(&mut self, m: Material) {
+        self.verres.insert(m.nom.to_uppercase(), m);
     }
 
     /// Ajoute ou met à jour un verre dans le catalogue
@@ -436,12 +473,9 @@ LD 0.3 2.5\r\nNM MODELE 99 0 1.6 40 0 0 0\r\nCD\r\n";
     #[test]
     fn formules_de_dispersion() {
         // Schott (formule 1) équivalente au Sellmeier de N-BK7 à 1e-5 près sur le visible
-        let schott = FormuleDispersion {
-            numero: 1,
-            coefficients: vec![2.2718929, -1.0108077e-2, 1.0592509e-2, 2.0816965e-4, -7.6472538e-6, 4.9240991e-7],
-        };
+        let schott = FormuleDispersion::nouvelle(1, vec![2.2718929, -1.0108077e-2, 1.0592509e-2, 2.0816965e-4, -7.6472538e-6, 4.9240991e-7]);
         let n = schott.indice(0.5875618).unwrap();
         assert!((n - 1.5168).abs() < 2e-4, "{n}");
-        assert!(FormuleDispersion { numero: 42, coefficients: vec![] }.indice(0.5).is_none());
+        assert!(FormuleDispersion::nouvelle(42, vec![]).indice(0.5).is_none());
     }
 }
