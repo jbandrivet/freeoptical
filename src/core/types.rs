@@ -190,6 +190,11 @@ pub struct Surface {
     /// Ordre de diffraction utilisé
     #[serde(default, skip_serializing_if = "est_nul_i")]
     pub reseau_ordre: i32,
+    /// Angle de blaze d'un réseau en réflexion (degrés, 0 = non renseigné) : facettes inclinées
+    /// autour des traits, vers +Y local ; un angle positif favorise les ordres positifs. Sert au
+    /// calcul de l'efficacité (théorie scalaire) et de la longueur d'onde de blaze de chaque ordre
+    #[serde(default, skip_serializing_if = "est_nul")]
+    pub reseau_blaze_deg: f64,
     /// Focale d'une lentille idéale (type `Ideale`), en mm
     #[serde(default, skip_serializing_if = "est_nul")]
     pub focale_ideale_mm: f64,
@@ -252,6 +257,7 @@ impl Surface {
             rayon_obstruction: 0.0,
             reseau_traits_mm: 0.0,
             reseau_ordre: 0,
+            reseau_blaze_deg: 0.0,
             focale_ideale_mm: 0.0,
             inclinaison_avant_decentrement: false,
             inclinaison_z_deg: 0.0,

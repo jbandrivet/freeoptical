@@ -79,6 +79,9 @@ pub struct SurfacePatchParams {
     pub reseau_traits_mm: Option<f64>,
     /// Ordre de diffraction du réseau
     pub reseau_ordre: Option<i32>,
+    /// Angle de blaze d'un réseau en réflexion (degrés) : facettes inclinées vers +Y local, un
+    /// angle positif favorise les ordres positifs (efficacité, longueur d'onde de blaze)
+    pub reseau_blaze_deg: Option<f64>,
     /// Focale d'une lentille idéale (type `"IDEALE"`), en mm
     pub focale_ideale_mm: Option<f64>,
     /// Rupture de repère (type `"COORDBRK"`) : inclinaison appliquée avant le décentrement
@@ -123,6 +126,47 @@ pub struct OptimiserSystemeParams {
 pub struct ImporterTeloptikParams {
     /// Chemin absolu d'un fichier `.TDS` (TDESIGN), `.RLD` (LENSDES) ou `.DES` (RAYTRACE)
     pub chemin: String,
+}
+
+/// Paramètres des outils MCP `ouvrir_systeme(chemin)` et `enregistrer_systeme(chemin)`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct CheminSystemeParams {
+    /// Chemin absolu du fichier : `.json` (FreeOptical) ; à l'ouverture aussi `.zmx` (Zemax) ou
+    /// `.TDS` / `.RLD` / `.DES`
+    pub chemin: String,
+}
+
+/// Paramètres de l'outil MCP `obtenir_spot_diagram`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct SpotDiagramParams {
+    /// Index du champ dans `champs_deg` (0 par défaut)
+    pub champ_index: Option<usize>,
+    /// Longueur d'onde en nm ; absente : toutes les longueurs d'onde du système
+    pub longueur_onde_nm: Option<f64>,
+    /// Nombre d'anneaux de la grille hexapolaire de la pupille (4 par défaut)
+    pub nb_anneaux: Option<usize>,
+    /// Vrai pour omettre la liste des impacts (seulement centroïde et rayons)
+    pub sans_points: Option<bool>,
+}
+
+/// Un rayon demandé à l'outil MCP `tracer_rayons`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct RayonDemande {
+    /// Coordonnées normalisées dans la pupille d'entrée [px, py] (de −1 à 1)
+    pub pupille: [f64; 2],
+    /// Champ [x, y] : degrés (objet à l'infini) ou mm (objet à distance finie) ; [0, 0] par défaut
+    pub champ: Option<[f64; 2]>,
+    /// Longueur d'onde en nm ; par défaut la longueur d'onde de référence
+    pub longueur_onde_nm: Option<f64>,
+}
+
+/// Paramètres de l'outil MCP `tracer_rayons`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct TracerRayonsParams {
+    /// Rayons à tracer (2000 au plus)
+    pub rayons: Vec<RayonDemande>,
+    /// Vrai pour ne rendre que les points d'impact globaux (sans normales ni coordonnées locales)
+    pub points_seulement: Option<bool>,
 }
 
 /// Paramètres de l'outil MCP `tolerancer`
@@ -193,6 +237,28 @@ pub struct AnalyserSpectreParams {
     pub nb: Option<usize>,
     /// Largeur de fente : µm (objet à distance finie) ou secondes d'arc (objet à l'infini)
     pub largeur_fente: Option<f64>,
+}
+
+/// Paramètres de l'outil MCP `analyser_echellogramme`
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+pub struct AnalyserEchellogrammeParams {
+    /// Index du champ (0 par défaut)
+    pub champ_index: Option<usize>,
+    /// Surface du réseau échelle (index à partir de 0) ; par défaut le premier réseau blazé
+    pub surface: Option<usize>,
+    /// Ordres extrêmes [premier, dernier] ; par défaut ceux dont la longueur d'onde de blaze
+    /// tombe dans le domaine
+    pub ordres: Option<[i32; 2]>,
+    /// Domaine (nm) qui fixe les ordres ; par défaut celui des longueurs d'onde du système
+    pub lambda_min_nm: Option<f64>,
+    pub lambda_max_nm: Option<f64>,
+    /// Points calculés par ordre (11 par défaut)
+    pub nb_par_ordre: Option<usize>,
+    /// Largeur de fente : µm (objet à distance finie) ou secondes d'arc (objet à l'infini)
+    pub largeur_fente: Option<f64>,
+    /// Dimensions du détecteur [largeur selon X local, hauteur selon Y local] en mm, centré sur
+    /// le sommet du plan image
+    pub detecteur_mm: Option<[f64; 2]>,
 }
 
 /// Paramètres de l'outil MCP `simuler_bath`
@@ -309,7 +375,27 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 20] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 24] = [
+    (
+        "tracer_rayons",
+        "Traces the given rays (normalized entrance pupil point, field, wavelength) through the current system and returns, for each one, its hits on every surface (global 3D point, local point, normal, outgoing direction), the surface where it was stopped and its optical path: for layout drawings and checks.",
+        "Verfolgt die angegebenen Strahlen (normierter Punkt der Eintrittspupille, Feld, Wellenlänge) durch das aktuelle System und gibt für jeden seine Auftreffpunkte auf allen Flächen (globaler 3D-Punkt, lokaler Punkt, Normale, austretende Richtung), die Fläche, an der er gestoppt wurde, und seinen optischen Weg zurück: für Systemzeichnungen und Kontrollen.",
+    ),
+    (
+        "analyser_echellogramme",
+        "Echelle spectrograph (echellogram): for each order of a blazed grating, blaze wavelength, free spectral range λ/m and its limits, positions on the detector, dispersion, spot, resolving power and blaze efficiency (scalar theory) across the order, the part that falls on the detector, spacing to the next order across the dispersion, spectral coverage and gaps.",
+        "Echelle-Spektrograph (Echellogramm): für jede Ordnung eines geblazten Gitters Blazewellenlänge, freier Spektralbereich λ/m und seine Grenzen, Positionen auf dem Detektor, Dispersion, Spot, Auflösungsvermögen und Blaze-Effizienz (skalare Theorie) über die Ordnung, der Teil auf dem Detektor, Abstand zur nächsten Ordnung quer zur Dispersion, spektrale Abdeckung und Lücken.",
+    ),
+    (
+        "ouvrir_systeme",
+        "Opens a system file and makes it the current system: FreeOptical JSON (the files of the Open and Save menus), Zemax .zmx, or .TDS / .RLD / .DES. Returns the system, its paraxial data and the import warnings.",
+        "Öffnet eine Systemdatei und macht sie zum aktuellen System: FreeOptical-JSON (die Dateien der Menüs Öffnen und Speichern), Zemax .zmx oder .TDS / .RLD / .DES. Gibt das System, seine paraxialen Daten und die Importwarnungen zurück.",
+    ),
+    (
+        "enregistrer_systeme",
+        "Saves the current system as FreeOptical JSON, the format opened by File > Open in the window and by --fichier.",
+        "Speichert das aktuelle System als FreeOptical-JSON, das Format, das Datei > Öffnen im Fenster und --fichier öffnen.",
+    ),
     (
         "tolerancer",
         "Tolerancing as in Zemax: sensitivities (each tolerance alone at its minimum and maximum, focus compensator readjusted), RSS estimate and Monte Carlo (all tolerances drawn together, normal or uniform law, reproducible seed). Tolerances: radius, power in fringes, thickness, conic, surface decenter/tilt, element decenter/tilt (pair of coordinate breaks), glass index and Abbe number. Criterion: RMS spot, RMS wavefront or MTF at a frequency. Without tolerances, uses those of the system or a default set.",
@@ -352,8 +438,8 @@ const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 20] = [
     ),
     (
         "analyser_spectre",
-        "Spectrograph analysis over a wavelength range: chief-ray position of each wavelength on the detector, inverse linear dispersion (nm/mm), spot per wavelength, slit image width and resolving power R = λ/Δλ.",
-        "Spektrographenanalyse über einen Wellenlängenbereich: Position jeder Wellenlänge auf dem Detektor (Hauptstrahl), reziproke Lineardispersion (nm/mm), Spot je Wellenlänge, Spaltbildbreite und Auflösungsvermögen R = λ/Δλ.",
+        "Spectrograph analysis over a wavelength range: chief-ray position of each wavelength on the detector, inverse linear dispersion (nm/mm), spot per wavelength, slit image width, resolving power R = λ/Δλ and blaze efficiency of the blazed gratings.",
+        "Spektrographenanalyse über einen Wellenlängenbereich: Position jeder Wellenlänge auf dem Detektor (Hauptstrahl), reziproke Lineardispersion (nm/mm), Spot je Wellenlänge, Spaltbildbreite, Auflösungsvermögen R = λ/Δλ und Blaze-Effizienz der geblazten Gitter.",
     ),
     (
         "importer_catalogue_agf",
@@ -402,8 +488,8 @@ const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 20] = [
     ),
     (
         "obtenir_spot_diagram",
-        "Returns the image plane hit coordinates, the centroid, the RMS radius (µm and mm), the maximum geometric radius and the Airy radius.",
-        "Gibt die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius (µm und mm), den maximalen geometrischen Radius und den Airy-Radius zurück.",
+        "Returns, for one field (and one wavelength or all of them), the image plane hit coordinates, the centroid, the RMS radius (µm and mm), the maximum geometric radius and the Airy radius.",
+        "Gibt für ein Feld (und eine oder alle Wellenlängen) die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius (µm und mm), den maximalen geometrischen Radius und den Airy-Radius zurück.",
     ),
     (
         "optimiser_systeme",
@@ -570,6 +656,9 @@ impl FreeOpticalMcpServer {
         }
         if let Some(v) = p.reseau_ordre {
             surf.reseau_ordre = v;
+        }
+        if let Some(v) = p.reseau_blaze_deg {
+            surf.reseau_blaze_deg = v;
         }
         if let Some(v) = p.focale_ideale_mm {
             surf.focale_ideale_mm = v;
@@ -871,7 +960,7 @@ impl FreeOpticalMcpServer {
     /// Analyse de spectrographe.
     #[tool(
         name = "analyser_spectre",
-        description = "Analyse de spectrographe sur un domaine de longueurs d'onde : position de chaque longueur d'onde sur le détecteur (rayon principal), dispersion linéaire inverse (nm/mm), tache par longueur d'onde, largeur de l'image de la fente et pouvoir de résolution R = λ/Δλ."
+        description = "Analyse de spectrographe sur un domaine de longueurs d'onde : position de chaque longueur d'onde sur le détecteur (rayon principal), dispersion linéaire inverse (nm/mm), tache par longueur d'onde, largeur de l'image de la fente, pouvoir de résolution R = λ/Δλ et efficacité de blaze des réseaux blazés."
     )]
     pub async fn analyser_spectre(&self, Parameters(p): Parameters<AnalyserSpectreParams>) -> String {
         let sys = self.systeme.lock().unwrap();
@@ -1092,12 +1181,142 @@ impl FreeOpticalMcpServer {
     /// Calcule et retourne les coordonnées des points d'impact au plan image et le rayon RMS du Spot Diagram.
     #[tool(
         name = "obtenir_spot_diagram",
-        description = "Retourne les coordonnées des points d'impact au plan image, le centroïde, le rayon RMS (µm et mm), le rayon géométrique maximal et le rayon d'Airy."
+        description = "Retourne, pour un champ (et une longueur d'onde ou toutes), les coordonnées des points d'impact au plan image, le centroïde, le rayon RMS (µm et mm), le rayon géométrique maximal et le rayon d'Airy."
     )]
-    pub async fn obtenir_spot_diagram(&self) -> String {
+    pub async fn obtenir_spot_diagram(&self, Parameters(p): Parameters<SpotDiagramParams>) -> String {
+        let mut sys = self.systeme.lock().unwrap().clone();
+        let champ = match p.champ_index {
+            None => sys.champs_deg.first().copied().unwrap_or((0.0, 0.0)),
+            Some(i) => match sys.champs_deg.get(i) {
+                Some(&c) => c,
+                None => {
+                    return serde_json::json!({ "erreur": trf!(
+                        "champ {} absent : le système a {} champ(s)",
+                        "field {} missing: the system has {} field(s)",
+                        "Feld {} fehlt: das System hat {} Feld(er)",
+                        i, sys.champs_deg.len()) })
+                    .to_string();
+                }
+            },
+        };
+        if let Some(l) = p.longueur_onde_nm {
+            sys.longueurs_onde = vec![crate::core::types::Wavelength::new(l, 1.0, format!("{l} nm"))];
+        }
+        let mut spot: SpotDiagramResult = calculer_spot_diagram(&sys, champ, p.nb_anneaux.unwrap_or(4).max(1));
+        if p.sans_points.unwrap_or(false) {
+            spot.points.clear();
+        }
+        let mut json = serde_json::to_value(&spot).unwrap_or_default();
+        json["champ_deg"] = serde_json::json!(champ);
+        serde_json::to_string_pretty(&json).unwrap_or_default()
+    }
+
+    /// Échellogramme d'un spectrographe échelle.
+    #[tool(
+        name = "analyser_echellogramme",
+        description = "Spectrographe échelle (échellogramme) : pour chaque ordre d'un réseau blazé, longueur d'onde de blaze, intervalle spectral libre λ/m et ses bornes, positions sur le détecteur, dispersion, tache, pouvoir de résolution et efficacité de blaze (théorie scalaire) le long de l'ordre, partie qui tombe sur le détecteur, écart à l'ordre suivant perpendiculairement à la dispersion, couverture spectrale et lacunes."
+    )]
+    pub async fn analyser_echellogramme(&self, Parameters(p): Parameters<AnalyserEchellogrammeParams>) -> String {
+        let sys = self.systeme.lock().unwrap().clone();
+        let champ = sys.champs_deg.get(p.champ_index.unwrap_or(0)).copied().unwrap_or((0.0, 0.0));
+        let domaine_nm = match (p.lambda_min_nm, p.lambda_max_nm) {
+            (Some(a), Some(b)) => Some((a.min(b), a.max(b))),
+            _ => None,
+        };
+        let params = crate::core::spectre::ParametresEchellogramme {
+            surface: p.surface,
+            ordres: p.ordres.map(|o| (o[0], o[1])),
+            domaine_nm,
+            nb_par_ordre: p.nb_par_ordre.unwrap_or(11),
+            largeur_fente: p.largeur_fente.unwrap_or(if sys.objet_fini().is_some() { 20.0 } else { 2.0 }),
+            detecteur_mm: p.detecteur_mm.map(|d| (d[0], d[1])),
+        };
+        match crate::core::spectre::calculer_echellogramme(&sys, champ, &params) {
+            Ok(e) => serde_json::to_string(&e).unwrap_or_default(),
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Trace des rayons choisis et rend leurs points d'impact.
+    #[tool(
+        name = "tracer_rayons",
+        description = "Trace les rayons donnés (point normalisé de la pupille d'entrée, champ, longueur d'onde) dans le système courant et rend, pour chacun, ses impacts sur toutes les surfaces (point global 3D, point local, normale, direction sortante), la surface où il a été arrêté et son chemin optique : pour les schémas et les contrôles."
+    )]
+    pub async fn tracer_rayons(&self, Parameters(p): Parameters<TracerRayonsParams>) -> String {
+        if p.rayons.len() > 2000 {
+            return serde_json::json!({ "erreur": tr!("2000 rayons au plus", "2000 rays at most", "höchstens 2000 Strahlen") }).to_string();
+        }
+        let sys = self.systeme.lock().unwrap().clone();
+        let vise = crate::core::raytracer::VisePupille::calculer(&sys);
+        let seuls = p.points_seulement.unwrap_or(false);
+        let rayons: Vec<serde_json::Value> = p
+            .rayons
+            .iter()
+            .map(|r| {
+                let champ = r.champ.unwrap_or([0.0, 0.0]);
+                let l = r.longueur_onde_nm.unwrap_or(sys.longueur_onde_ref_nm);
+                let tr = crate::core::raytracer::tracer_rayon_unique(
+                    &sys,
+                    vise.rayon(r.pupille[0], r.pupille[1], champ[0], champ[1], l),
+                    (champ[0], champ[1]),
+                    (r.pupille[0], r.pupille[1]),
+                );
+                let arret = tr.impacts.iter().find(|h| h.vignette).map(|h| h.index_surface);
+                let depart = tr.rayon_initial.origine;
+                if seuls {
+                    serde_json::json!({
+                        "depart": [depart.x, depart.y, depart.z],
+                        "points": tr.impacts.iter().map(|h| (h.index_surface, [h.point_global.x, h.point_global.y, h.point_global.z])).collect::<Vec<_>>(),
+                        "vignette": tr.vignette,
+                        "arrete_sur": arret,
+                    })
+                } else {
+                    serde_json::json!({
+                        "depart": [depart.x, depart.y, depart.z],
+                        "impacts": tr.impacts,
+                        "vignette": tr.vignette,
+                        "arrete_sur": arret,
+                        "chemin_optique_mm": tr.chemin_optique_total,
+                    })
+                }
+            })
+            .collect();
+        serde_json::to_string(&serde_json::json!({ "rayons": rayons })).unwrap_or_default()
+    }
+
+    /// Ouvre un fichier système et en fait le système courant.
+    #[tool(
+        name = "ouvrir_systeme",
+        description = "Ouvre un fichier système et en fait le système courant : JSON de FreeOptical (fichiers des menus Ouvrir et Enregistrer), Zemax .zmx, ou .TDS / .RLD / .DES. Retourne le système, ses données paraxiales et les avertissements d'import."
+    )]
+    pub async fn ouvrir_systeme(&self, Parameters(p): Parameters<CheminSystemeParams>) -> String {
+        match crate::core::ouvrir_fichier_systeme(std::path::Path::new(&p.chemin)) {
+            Ok((systeme, avertissements)) => {
+                let mut sys = self.systeme.lock().unwrap();
+                *sys = systeme;
+                crate::core::solves::appliquer_solves(&mut sys);
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "systeme": &*sys,
+                    "paraxial": calculer_paraxial(&sys),
+                    "avertissements": avertissements,
+                }))
+                .unwrap_or_default()
+            }
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
+    }
+
+    /// Enregistre le système courant en JSON.
+    #[tool(
+        name = "enregistrer_systeme",
+        description = "Enregistre le système courant en JSON de FreeOptical, le format qu'ouvrent Fichier > Ouvrir dans la fenêtre et --fichier."
+    )]
+    pub async fn enregistrer_systeme(&self, Parameters(p): Parameters<CheminSystemeParams>) -> String {
         let sys = self.systeme.lock().unwrap();
-        let spot: SpotDiagramResult = calculer_spot_diagram(&sys, (0.0, 0.0), 4);
-        serde_json::to_string_pretty(&spot).unwrap_or_default()
+        match crate::core::enregistrer_fichier_systeme(&sys, std::path::Path::new(&p.chemin)) {
+            Ok(()) => serde_json::json!({ "enregistre": p.chemin, "nb_surfaces": sys.surfaces.len() }).to_string(),
+            Err(e) => serde_json::json!({ "erreur": e }).to_string(),
+        }
     }
 
     /// Lance l'algorithme d'optimisation Damped Least Squares (DLS) selon les variables et cibles fournies.
@@ -1182,7 +1401,7 @@ mod tests {
         assert!(res_sim.contains("focale_effl_mm"));
 
         // 5. obtenir_spot_diagram
-        let res_spot = srv.obtenir_spot_diagram().await;
+        let res_spot = srv.obtenir_spot_diagram(Parameters(SpotDiagramParams::default())).await;
         assert!(res_spot.contains("rayon_rms_um"));
 
         // 6. optimiser_systeme
@@ -1357,6 +1576,65 @@ mod tests {
             .analyser_interferogramme(Parameters(AnalyserInterferogrammeParams { chemin: "/inexistant.png".into(), ..Default::default() }))
             .await;
         assert!(erreur.contains("erreur"));
+    }
+
+    #[tokio::test]
+    async fn test_outil_mcp_tracer_rayons() {
+        let srv = FreeOpticalMcpServer::nouveau(crate::core::presets::creer_telescope_cassegrain());
+        let demande = |px: f64, py: f64| RayonDemande { pupille: [px, py], champ: None, longueur_onde_nm: Some(550.0) };
+        let res = srv
+            .tracer_rayons(Parameters(TracerRayonsParams { rayons: vec![demande(0.0, 0.7), demande(0.7, 0.0), demande(0.0, 2.0)], points_seulement: Some(true) }))
+            .await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let r = json["rayons"].as_array().unwrap();
+        assert_eq!(r.len(), 3);
+        // Rayons dans la pupille : 3 impacts (primaire, secondaire, image), même point focal
+        for k in 0..2 {
+            assert_eq!(r[k]["vignette"], false, "{res}");
+            assert_eq!(r[k]["points"].as_array().unwrap().len(), 3);
+        }
+        // Symétrie de révolution : (0 ; 0,7) et (0,7 ; 0) arrivent à la même distance de l'axe
+        let f0 = &r[0]["points"][2][1];
+        let f1 = &r[1]["points"][2][1];
+        let rayon = |f: &serde_json::Value| f[0].as_f64().unwrap().hypot(f[1].as_f64().unwrap());
+        assert!((rayon(f0) - rayon(f1)).abs() < 1e-9, "{f0} {f1}");
+        assert!((f0[2].as_f64().unwrap() - f1[2].as_f64().unwrap()).abs() < 1e-9);
+        // Rayon hors de la pupille : arrêté par le primaire
+        assert_eq!(r[2]["vignette"], true);
+        assert_eq!(r[2]["arrete_sur"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_outils_mcp_ouvrir_enregistrer_et_spot_par_champ() {
+        let mut sys = crate::core::presets::creer_telescope_cassegrain();
+        sys.champs_deg = vec![(0.0, 0.0), (0.0, 0.3)];
+        let srv = FreeOpticalMcpServer::nouveau(sys);
+        let dossier = std::env::temp_dir().join(format!("freeoptical_mcp_{}", std::process::id()));
+        std::fs::create_dir_all(&dossier).unwrap();
+        let chemin = dossier.join("cassegrain.json").to_string_lossy().to_string();
+        let res = srv.enregistrer_systeme(Parameters(CheminSystemeParams { chemin: chemin.clone() })).await;
+        assert!(res.contains("enregistre"), "{res}");
+        // Un autre système, puis on rouvre le fichier
+        srv.creer_systeme(Parameters(CreerSystemeParams { nom: "vide".into(), longueur_onde_ref: 550.0 })).await;
+        let res = srv.ouvrir_systeme(Parameters(CheminSystemeParams { chemin: chemin.clone() })).await;
+        let json: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(json["systeme"]["surfaces"].as_array().unwrap().len(), 3, "{res}");
+        // Spot sur l'axe et hors axe : le centroïde suit le champ, la coma grossit la tache
+        let axe = |i, sans| SpotDiagramParams { champ_index: Some(i), sans_points: Some(sans), ..Default::default() };
+        let s0: serde_json::Value = serde_json::from_str(&srv.obtenir_spot_diagram(Parameters(axe(0, true))).await).unwrap();
+        let s1: serde_json::Value = serde_json::from_str(&srv.obtenir_spot_diagram(Parameters(axe(1, false))).await).unwrap();
+        assert!(s0["points"].as_array().unwrap().is_empty());
+        assert!(!s1["points"].as_array().unwrap().is_empty());
+        assert!(s1["centroide_mm"][1].as_f64().unwrap().abs() > 0.1, "{s1}");
+        assert!(s1["rayon_rms_um"].as_f64().unwrap() > s0["rayon_rms_um"].as_f64().unwrap());
+        let mono = SpotDiagramParams { champ_index: Some(0), longueur_onde_nm: Some(500.0), sans_points: Some(false), ..Default::default() };
+        let s2: serde_json::Value = serde_json::from_str(&srv.obtenir_spot_diagram(Parameters(mono)).await).unwrap();
+        assert!(s2["points"].as_array().unwrap().iter().all(|p| p["longueur_onde_nm"].as_f64() == Some(500.0)));
+        let res = srv.obtenir_spot_diagram(Parameters(axe(5, true))).await;
+        assert!(res.contains("erreur"), "{res}");
+        let res = srv.ouvrir_systeme(Parameters(CheminSystemeParams { chemin: dossier.join("absent.json").to_string_lossy().to_string() })).await;
+        assert!(res.contains("erreur"), "{res}");
+        std::fs::remove_dir_all(&dossier).ok();
     }
 
     #[tokio::test]

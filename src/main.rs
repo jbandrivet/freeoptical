@@ -142,24 +142,12 @@ async fn main() -> Result<()> {
 
     let systeme = if let Some(chemin) = &args.fichier {
         let chemin = std::path::Path::new(chemin);
-        if core::zemax::est_fichier_zemax(chemin) {
-            let import = core::zemax::importer_fichier_zemax(chemin).map_err(anyhow::Error::msg)?;
-            for avertissement in &import.avertissements {
-                eprintln!("Import {} : {}", chemin.display(), avertissement);
-            }
-            import.systeme
-        } else if core::teloptik::est_fichier_teloptik(chemin) {
-            let import =
-                core::teloptik::importer_fichier_teloptik(chemin).map_err(anyhow::Error::msg)?;
-            // stderr : stdout est réservé au protocole MCP
-            for avertissement in &import.avertissements {
-                eprintln!("Import {} : {}", chemin.display(), avertissement);
-            }
-            import.systeme
-        } else {
-            let contenu = std::fs::read_to_string(chemin)?;
-            serde_json::from_str::<OpticalSystem>(&contenu)?
+        let (systeme, avertissements) = core::ouvrir_fichier_systeme(chemin).map_err(anyhow::Error::msg)?;
+        // stderr : stdout est réservé au protocole MCP
+        for avertissement in &avertissements {
+            eprintln!("Import {} : {}", chemin.display(), avertissement);
         }
+        systeme
     } else {
         OpticalSystem::nouveau(
             tr!("Nouveau Système Optique", "New Optical System", "Neues optisches System"),

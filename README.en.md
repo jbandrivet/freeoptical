@@ -157,7 +157,9 @@ freeoptical --mcp
 - `ajouter_surface(type, rayon, epaisseur, verre, semi_diametre)`: adds a refracting surface or a mirror.
 - `modifier_surface(index, parametres)`: modifies the properties of an existing surface.
 - `lancer_simulation()`: runs the sequential ray trace and returns the paraxial data, the 3D rays and the LSA.
-- `obtenir_spot_diagram()`: returns the image plane hits, the centroid, the RMS radius and the Airy radius.
+- `obtenir_spot_diagram(champ_index, longueur_onde_nm, nb_anneaux, sans_points)`: returns, for one field (one wavelength or all), the image plane hits, the centroid, the RMS radius and the Airy radius.
+- `ouvrir_systeme(chemin)` / `enregistrer_systeme(chemin)`: opens a file (FreeOptical JSON, `.zmx`, `.TDS`/`.RLD`/`.DES`) or saves the current system as JSON.
+- `tracer_rayons(rayons, points_seulement)`: traces chosen rays (pupil point, field, wavelength) and returns their 3D hits on every surface (layout drawings, checks).
 - `optimiser_systeme(variables, cibles)`: runs the Damped Least Squares (DLS) optimizer.
 - `importer_teloptik(chemin)`: imports a `.TDS`, `.RLD` or `.DES` file (TDESIGN, LENSDES, RAYTRACE) as the current system.
 - `importer_zemax(chemin)`: imports a sequential Zemax `.zmx` file as the current system.
@@ -170,7 +172,8 @@ freeoptical --mcp
 - `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel coefficients per surface, field curvature and distortion, ray fans.
 - `importer_catalogue_agf(chemin)`: imports a Zemax `.agf` glass catalogue.
 - `definir_systeme(...)`: object (infinity or distance), afocal, aperture, fields, wavelengths.
-- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: positions, dispersion, spot, slit image and resolution of a spectrograph.
+- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: positions, dispersion, spot, slit image, resolution and blaze efficiency of a spectrograph.
+- `analyser_echellogramme(champ_index, surface, ordres, lambda_min_nm, lambda_max_nm, nb_par_ordre, largeur_fente, detecteur_mm)`: echelle spectrograph — for each order, blaze wavelength, free spectral range, detector positions, resolution, efficiency, order spacing, coverage and gaps.
 - `simuler_bath(parametres, chemin_png)`: interferogram of a mirror at its centre of curvature and its reduction (measured conic, PV/RMS, Strehl, Zernike), optional PNG.
 - `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)`: analysis and reduction of a Bath interferogram photo.
 - `modifier_surface` also accepts `solve_rayon`, `solve_epaisseur`, `solve_conique` (e.g. `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}`, `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"Reprise","surface":1,"facteur":-1,"decalage":0}`), `retirer_solves`, `inclinaison_z_deg`, `inclinaison_avant_decentrement` (`COORDBRK` coordinate breaks), `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` and `reseau_ordre`; `optimiser_systeme` accepts the variables `a4` to `a10` and the targets `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.

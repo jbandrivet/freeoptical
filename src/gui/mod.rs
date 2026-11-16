@@ -1445,11 +1445,14 @@ impl FreeOpticalGuiApp {
                     }
                     champ(ui, tr!("Obstr. r", "Obstr. r", "Obstr. r"), &mut surf.rayon_obstruction, 0.1, tr!("Rayon de l'obstruction centrale (mm)", "Central obstruction radius (mm)", "Radius der zentralen Obstruktion (mm)"));
                     champ(ui, tr!("Réseau tr/mm", "Grating l/mm", "Gitter L/mm"), &mut surf.reseau_traits_mm, 1.0, tr!("Traits par mm (0 = pas de réseau), traits parallèles à X local", "Lines per mm (0 = no grating), lines parallel to local X", "Linien pro mm (0 = kein Gitter), Linien parallel zu lokalem X"));
+                    if surf.reseau_traits_mm != 0.0 {
+                        champ(ui, tr!("Blaze°", "Blaze°", "Blaze°"), &mut surf.reseau_blaze_deg, 0.1, tr!("Angle de blaze d'un réseau en réflexion (degrés, 0 = non renseigné) : facettes inclinées vers +Y local, un angle positif favorise les ordres positifs", "Blaze angle of a reflection grating (degrees, 0 = not set): facets tilted towards local +Y, a positive angle favours positive orders", "Blazewinkel eines Reflexionsgitters (Grad, 0 = nicht angegeben): Facetten zur lokalen +Y-Achse geneigt, ein positiver Winkel begünstigt positive Ordnungen"));
+                    }
                     if surf.type_surface == SurfaceType::Ideale {
                         champ(ui, tr!("Focale idéale", "Ideal focal", "Ideale Brennw."), &mut surf.focale_ideale_mm, 0.5, tr!("Focale de la lentille idéale (mm)", "Focal length of the ideal lens (mm)", "Brennweite der idealen Linse (mm)"));
                     }
                     ui.label(RichText::new(tr!("ordre", "order", "Ordnung")).monospace().color(COL_DOS_CYAN));
-                    if ui.add(egui::DragValue::new(&mut surf.reseau_ordre).range(-10..=10)).changed() {
+                    if ui.add(egui::DragValue::new(&mut surf.reseau_ordre).range(-500..=500)).changed() {
                         modifie = true;
                     }
                     surf.rayon_obstruction = surf.rayon_obstruction.max(0.0);

@@ -157,7 +157,9 @@ freeoptical --mcp
 - `ajouter_surface(type, rayon, epaisseur, verre, semi_diametre)`: fügt eine brechende Fläche oder einen Spiegel hinzu.
 - `modifier_surface(index, parametres)`: ändert die Eigenschaften einer vorhandenen Fläche.
 - `lancer_simulation()`: führt die sequentielle Strahlverfolgung aus und liefert paraxiale Daten, 3D-Strahlen und LSA.
-- `obtenir_spot_diagram()`: liefert die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius und den Airy-Radius.
+- `obtenir_spot_diagram(champ_index, longueur_onde_nm, nb_anneaux, sans_points)`: liefert für ein Feld (eine oder alle Wellenlängen) die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius und den Airy-Radius.
+- `ouvrir_systeme(chemin)` / `enregistrer_systeme(chemin)`: öffnet eine Datei (FreeOptical-JSON, `.zmx`, `.TDS`/`.RLD`/`.DES`) oder speichert das aktuelle System als JSON.
+- `tracer_rayons(rayons, points_seulement)`: verfolgt gewählte Strahlen (Pupillenpunkt, Feld, Wellenlänge) und liefert ihre 3D-Auftreffpunkte auf jeder Fläche (Zeichnungen, Kontrollen).
 - `optimiser_systeme(variables, cibles)`: startet die Optimierung nach Damped Least Squares (DLS).
 - `importer_teloptik(chemin)`: importiert eine `.TDS`-, `.RLD`- oder `.DES`-Datei (TDESIGN, LENSDES, RAYTRACE) als aktuelles System.
 - `importer_zemax(chemin)`: importiert eine sequentielle Zemax-Datei `.zmx` als aktuelles System.
@@ -170,7 +172,8 @@ freeoptical --mcp
 - `analyser_aberrations(champ_index, longueur_onde_nm)`: Seidel-Koeffizienten je Fläche, Bildfeldwölbung und Verzeichnung, Strahlfächer.
 - `importer_catalogue_agf(chemin)`: importiert einen Zemax-Glaskatalog `.agf`.
 - `definir_systeme(...)`: Objekt (unendlich oder Abstand), afokal, Öffnung, Felder, Wellenlängen.
-- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: Positionen, Dispersion, Spot, Spaltbild und Auflösung eines Spektrographen.
+- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)`: Positionen, Dispersion, Spot, Spaltbild, Auflösung und Blaze-Effizienz eines Spektrographen.
+- `analyser_echellogramme(champ_index, surface, ordres, lambda_min_nm, lambda_max_nm, nb_par_ordre, largeur_fente, detecteur_mm)`: Echelle-Spektrograph — für jede Ordnung Blazewellenlänge, freier Spektralbereich, Positionen auf dem Detektor, Auflösung, Effizienz, Ordnungsabstand, Abdeckung und Lücken.
 - `simuler_bath(parametres, chemin_png)`: Interferogramm eines Spiegels im Krümmungsmittelpunkt und seine Auswertung (gemessene Konik, PV/RMS, Strehl, Zernike), PNG optional.
 - `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)`: Auswertung des Fotos eines Bath-Interferogramms.
 - `modifier_surface` akzeptiert auch `solve_rayon`, `solve_epaisseur`, `solve_conique` (z. B. `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}`, `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"Reprise","surface":1,"facteur":-1,"decalage":0}`), `retirer_solves`, `inclinaison_z_deg`, `inclinaison_avant_decentrement` (Koordinatenbrüche `COORDBRK`), `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` und `reseau_ordre`; `optimiser_systeme` akzeptiert die Variablen `a4` bis `a10` und die Ziele `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.

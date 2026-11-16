@@ -157,7 +157,9 @@ freeoptical --mcp
 - `ajouter_surface(type, rayon, epaisseur, verre, semi_diametre)` : Ajoute un dioptre ou un miroir.
 - `modifier_surface(index, parametres)` : Modifie les propriétés d'une surface existante.
 - `lancer_simulation()` : Exécute le lancer de rayons séquentiel et retourne les données paraxiales, les rayons 3D et la LSA.
-- `obtenir_spot_diagram()` : Retourne les coordonnées des impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
+- `obtenir_spot_diagram(champ_index, longueur_onde_nm, nb_anneaux, sans_points)` : Retourne, pour un champ (une longueur d'onde ou toutes), les impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
+- `ouvrir_systeme(chemin)` / `enregistrer_systeme(chemin)` : ouvre un fichier (JSON de FreeOptical, `.zmx`, `.TDS`/`.RLD`/`.DES`) ou enregistre le système courant en JSON.
+- `tracer_rayons(rayons, points_seulement)` : trace des rayons choisis (point de pupille, champ, longueur d'onde) et rend leurs impacts 3D sur chaque surface (schémas, contrôles).
 - `optimiser_systeme(variables, cibles)` : Exécute l'optimiseur Damped Least Squares (DLS).
 - `importer_teloptik(chemin)` : Importe un fichier `.TDS`, `.RLD` ou `.DES` (TDESIGN, LENSDES, RAYTRACE) comme système courant.
 - `importer_zemax(chemin)` : Importe un fichier Zemax séquentiel `.zmx` comme système courant.
@@ -170,10 +172,11 @@ freeoptical --mcp
 - `analyser_aberrations(champ_index, longueur_onde_nm)` : coefficients de Seidel par surface, courbure de champ et distorsion, courbes de rayons.
 - `importer_catalogue_agf(chemin)` : importe un catalogue de verres Zemax `.agf`.
 - `definir_systeme(...)` : objet (infini ou distance), afocal, ouverture, champs, longueurs d'onde.
-- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)` : positions, dispersion, tache, image de fente et résolution d'un spectrographe.
+- `analyser_spectre(champ_index, lambda_min_nm, lambda_max_nm, nb, largeur_fente)` : positions, dispersion, tache, image de fente, résolution et efficacité de blaze d'un spectrographe.
+- `analyser_echellogramme(champ_index, surface, ordres, lambda_min_nm, lambda_max_nm, nb_par_ordre, largeur_fente, detecteur_mm)` : spectrographe échelle — pour chaque ordre, longueur d'onde de blaze, intervalle spectral libre, positions sur le détecteur, résolution, efficacité, écart entre ordres, couverture et lacunes.
 - `simuler_bath(parametres, chemin_png)` : interférogramme d'un miroir au centre de courbure et sa réduction (conique mesurée, PV/RMS, Strehl, Zernike), PNG facultatif.
 - `analyser_interferogramme(chemin, parametres, disque, marge_pct, signe)` : analyse et réduction de la photo d'un interférogramme de Bath.
-- `modifier_surface` accepte aussi `solve_rayon`, `solve_epaisseur`, `solve_conique` (ex. `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}`, `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"Reprise","surface":1,"facteur":-1,"decalage":0}`), `retirer_solves`, `inclinaison_z_deg`, `inclinaison_avant_decentrement` (ruptures de repère `COORDBRK`), `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm` et `reseau_ordre` ; `optimiser_systeme` accepte les variables `a4` à `a10` et les cibles `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
+- `modifier_surface` accepte aussi `solve_rayon`, `solve_epaisseur`, `solve_conique` (ex. `{"type":"HauteurMarginale","hauteur_mm":0,"zone":0}`, `{"type":"NombreOuverture","f_nombre":8}`, `{"type":"Reprise","surface":1,"facteur":-1,"decalage":0}`), `retirer_solves`, `inclinaison_z_deg`, `inclinaison_avant_decentrement` (ruptures de repère `COORDBRK`), `decentrement`, `inclinaison_deg`, `rayon_obstruction`, `reseau_traits_mm`, `reseau_ordre` et `reseau_blaze_deg` (angle de blaze d'un réseau en réflexion) ; `optimiser_systeme` accepte les variables `a4` à `a10` et les cibles `spot_rms_champs`, `opd_rms_champs`, `longueur_totale_max`, `distorsion_max`, `epaisseur_centre_min`, `epaisseur_bord_min`.
 
 ---
 
