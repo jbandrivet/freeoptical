@@ -81,6 +81,13 @@ Die Asphärenkoeffizienten A4, A6, A8, A10 der ausgewählten Fläche werden in d
 - Unter den Asphärenkoeffizienten stellt die Zeile der ausgewählten Fläche ihre **Dezentrierung** (X, Y), ihre **Kippung** (um X, dann um Y, in Grad, um den Scheitel), den Radius ihrer **zentralen Obstruktion** und ein **Beugungsgitter** (Linien pro mm, Ordnung) ein.
 - Die Schaltfläche **DLS optimieren** öffnet die Gütefunktion: Variablen (Radien, Linsendicken, Luftabstände, Schnittweite, Kegelschnitte, Asphären A4/A6), Kriterium (RMS-Spot oder RMS-Wellenfront über alle Felder und Wellenlängen), Zielbrennweite und Nebenbedingungen (Rand- und Mittendicken, Baulänge, Verzeichnung).
 
+#### Rückgängig und Export
+- **Rückgängig / Wiederherstellen** (Menü `Bearbeiten`, `Strg+Z`, `Strg+Y` oder `Strg+Umschalt+Z`): jede Änderung am System — Flächentabelle, Menüs, Systemeinstellungen, Optimierung, Toleranzen — lässt sich rückgängig machen, bis zu 200 Schritte. Eine Einstellung mit der Maus zählt als ein Schritt. In einem Eingabefeld macht `Strg+Z` die Eingabe rückgängig. Beim Öffnen einer Datei oder eines Beispiels beginnt der Verlauf neu.
+- `Datei` → `Exportieren`:
+  - **Systemdatenblatt und Teilezeichnungen (PDF)**: Einsatzbedingungen, paraxiale Kennwerte, Bildqualität je Feld (RMS- und GEO-Fleck, Airy-Radius, Wellenfront, Strehl), maßstäblicher Schnitt mit den Strahlen jedes Felds, Flächentabelle; dann eine **bemaßte Fertigungszeichnung** je Linse (Radien mit CX / CC wie in ISO 10110, Mitten- und Randdicke, Nutz- und Außendurchmesser, Glas, Brennweite der Einzellinse, Toleranzen des Systems; Warnung bei zu dünnem oder negativem Rand) und je Spiegel (Radius, Brennweite, F/D, Konik, Pfeilhöhe, Abweichung von der Kugel durch den Rand).
+  - **Schnitt für CAD (DXF)**: eine Ebene je Teil; für jede Linse der geschlossene Halbschnitt über ihrer Achse, der um 360° gedreht (z. B. in FreeCAD) den Körper ergibt; volles Profil der Spiegel; Kugelflächen als exakte Bögen; Ebenen `AXE` und `RAYONS`.
+  - **Angezeigte Ansicht als Bild (PNG)**: die Ansicht wie auf dem Bildschirm (Schnitt, Fleck, MTF…), ohne die darüberliegenden Fenster.
+
 #### Gläser
 Die eingebauten Gläser (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, Quarzglas, Flussspat CaF2) folgen ihren Sellmeier-Formeln; die alten Namen (BK7, SF11…) bleiben gültig. Zemax-Kataloge **`.agf`** (Schott, Ohara, CDGM, Sumita…, ANSI oder UTF-16) werden über das Menü `Datei`, per Drag-and-drop, mit `--catalogue datei.agf` oder mit dem MCP-Werkzeug `importer_catalogue_agf` importiert; sie werden in `~/.config/freeoptical/verres` aufbewahrt und bei jedem Start geladen. Die Syntax `nd:Vd` bleibt für ein Modellglas verfügbar.
 
@@ -159,6 +166,7 @@ freeoptical --mcp
 - `lancer_simulation()`: führt die sequentielle Strahlverfolgung aus und liefert paraxiale Daten, 3D-Strahlen und LSA.
 - `obtenir_spot_diagram(champ_index, longueur_onde_nm, nb_anneaux, sans_points)`: liefert für ein Feld (eine oder alle Wellenlängen) die Auftreffpunkte in der Bildebene, den Schwerpunkt, den RMS-Radius und den Airy-Radius.
 - `ouvrir_systeme(chemin)` / `enregistrer_systeme(chemin)`: öffnet eine Datei (FreeOptical-JSON, `.zmx`, `.TDS`/`.RLD`/`.DES`) oder speichert das aktuelle System als JSON.
+- `exporter_fiche_pdf(chemin)` / `exporter_dxf(chemin)`: Systemdatenblatt und Teilezeichnungen als PDF; Schnitt für CAD als DXF (Halbschnitte der Linsen, exakte Bögen).
 - `tracer_rayons(rayons, points_seulement)`: verfolgt gewählte Strahlen (Pupillenpunkt, Feld, Wellenlänge) und liefert ihre 3D-Auftreffpunkte auf jeder Fläche (Zeichnungen, Kontrollen).
 - `optimiser_systeme(variables, cibles)`: startet die Optimierung nach Damped Least Squares (DLS).
 - `importer_teloptik(chemin)`: importiert eine `.TDS`-, `.RLD`- oder `.DES`-Datei (TDESIGN, LENSDES, RAYTRACE) als aktuelles System.

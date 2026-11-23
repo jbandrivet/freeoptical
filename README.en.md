@@ -81,6 +81,13 @@ The A4, A6, A8, A10 aspheric coefficients of the selected surface are edited on 
 - Below the aspheric coefficients, the line of the selected surface sets its **decenter** (X, Y), its **tilt** (about X then Y, in degrees, about the vertex), its **central obstruction** radius and a **diffraction grating** (lines per mm, order).
 - The **Optimize DLS** button opens the merit function: variables (radii, lens thicknesses, air spaces, back focus, conics, aspherics A4/A6), criterion (RMS spot or RMS wavefront over all fields and wavelengths), target focal length and constraints (edge and centre thicknesses, total length, distortion).
 
+#### Undo and export
+- **Undo / Redo** (`Edit` menu, `Ctrl+Z`, `Ctrl+Y` or `Ctrl+Shift+Z`): any change to the system — surface table, menus, system settings, optimization, tolerances — can be undone, up to 200 steps. A mouse adjustment counts as a single step. In a text field, `Ctrl+Z` undoes the typing. The history starts afresh when a file or an example is opened.
+- `File` → `Export`:
+  - **System sheet and part drawings (PDF)**: operating conditions, paraxial characteristics, image quality per field (RMS and GEO spots, Airy radius, wavefront, Strehl), scaled section with the rays of each field, surface table; then a **dimensioned manufacturing drawing** for each lens (radii marked CX / CC as in ISO 10110, centre and edge thickness, clear and outer diameters, glass, focal length of the lens alone, system tolerances; warning when the edge is too thin or negative) and each mirror (radius, focal length, F/D, conic, sag, departure from the sphere through the edge).
+  - **Section for CAD (DXF)**: one layer per part; for each lens, the closed half-section above its axis, to be revolved 360° (FreeCAD: `Revolve`) to get its solid; full profile of the mirrors; spherical faces as exact arcs; `AXE` and `RAYONS` layers.
+  - **Displayed view as an image (PNG)**: the view as shown on screen (section, spot, MTF…), without the windows lying over it.
+
 #### Glasses
 The built-in glasses (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, fused silica, CaF2 fluorite) follow their Sellmeier formulas; their old names (BK7, SF11…) are still accepted. Zemax **`.agf`** catalogues (Schott, Ohara, CDGM, Sumita…, ANSI or UTF-16) are imported from the `File` menu, by drag and drop, with `--catalogue file.agf` or with the `importer_catalogue_agf` MCP tool; they are kept in `~/.config/freeoptical/verres` and reloaded at every start. The `nd:Vd` syntax is still available for a model glass.
 
@@ -159,6 +166,7 @@ freeoptical --mcp
 - `lancer_simulation()`: runs the sequential ray trace and returns the paraxial data, the 3D rays and the LSA.
 - `obtenir_spot_diagram(champ_index, longueur_onde_nm, nb_anneaux, sans_points)`: returns, for one field (one wavelength or all), the image plane hits, the centroid, the RMS radius and the Airy radius.
 - `ouvrir_systeme(chemin)` / `enregistrer_systeme(chemin)`: opens a file (FreeOptical JSON, `.zmx`, `.TDS`/`.RLD`/`.DES`) or saves the current system as JSON.
+- `exporter_fiche_pdf(chemin)` / `exporter_dxf(chemin)`: system sheet and part drawings as PDF; section for CAD as DXF (lens half-sections, exact arcs).
 - `tracer_rayons(rayons, points_seulement)`: traces chosen rays (pupil point, field, wavelength) and returns their 3D hits on every surface (layout drawings, checks).
 - `optimiser_systeme(variables, cibles)`: runs the Damped Least Squares (DLS) optimizer.
 - `importer_teloptik(chemin)`: imports a `.TDS`, `.RLD` or `.DES` file (TDESIGN, LENSDES, RAYTRACE) as the current system.

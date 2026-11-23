@@ -97,6 +97,7 @@ impl FreeOpticalGuiApp {
         let pire = ct::systeme_du_tirage(&sys, &ops, &reglages, mc.index_pire);
         if self.tolerance.nominal.is_none() {
             self.tolerance.nominal = Some((self.systeme.clone(), self.chemin_courant.clone(), self.systeme_enregistre.clone()));
+            self.historique_nominal = Some(std::mem::take(&mut self.historique));
         }
         let msg = trf!(
             "Pire tirage Monte-Carlo (n° {}) affiché : « Revenir au système nominal » dans la fenêtre de tolérancement.",
@@ -114,6 +115,11 @@ impl FreeOpticalGuiApp {
             self.charger_systeme(sys, tr!("Système nominal rétabli.", "Nominal system restored.", "Nennsystem wiederhergestellt."));
             self.chemin_courant = chemin;
             self.systeme_enregistre = empreinte;
+            // Le système nominal retrouve ses étapes d'annulation
+            if let Some(h) = self.historique_nominal.take() {
+                self.historique = h;
+                self.historique.suivre(&self.systeme, false);
+            }
         }
     }
 

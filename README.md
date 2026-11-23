@@ -81,6 +81,13 @@ Les coefficients asphériques A4, A6, A8, A10 de la surface sélectionnée s'éd
 - Sous les coefficients asphériques, la ligne de la surface sélectionnée règle son **décentrement** (X, Y), son **inclinaison** (autour de X puis de Y, en degrés, autour du sommet), le rayon de son **obstruction centrale** et un **réseau de diffraction** (traits par mm, ordre).
 - Le bouton **Optimiser DLS** ouvre la fonction de mérite : variables (rayons, épaisseurs des lentilles, espaces d'air, tirage, coniques, asphériques A4/A6), critère (spot RMS ou front d'onde RMS sur tous les champs et toutes les longueurs d'onde), focale cible et contraintes (épaisseurs au bord et au centre, longueur totale, distorsion).
 
+#### Annuler et exporter
+- **Annuler / Rétablir** (menu `Édition`, `Ctrl+Z`, `Ctrl+Y` ou `Ctrl+Maj+Z`) : toute modification du système — tableau des surfaces, menus, paramètres du système, optimisation, tolérances — peut être défaite, jusqu'à 200 étapes. Un réglage fait à la souris compte pour une seule étape. Dans un champ de saisie, `Ctrl+Z` annule la frappe. L'historique repart de zéro à l'ouverture d'un fichier ou d'un exemple.
+- `Fichier` → `Exporter` :
+  - **Fiche du système et plans des pièces (PDF)** : conditions d'utilisation, caractéristiques paraxiales, qualité d'image par champ (taches RMS et GEO, rayon d'Airy, front d'onde, Strehl), coupe à l'échelle avec les rayons de chaque champ, tableau des surfaces ; puis un **plan de fabrication coté** par lentille (rayons notés CX / CC comme dans la norme ISO 10110, épaisseurs au centre et au bord, diamètres utile et extérieur, verre, focale de la lentille seule, tolérances du système ; alerte si l'épaisseur au bord est trop faible ou négative) et par miroir (rayon, focale, F/D, conique, flèche, écart à la sphère qui passe par le bord).
+  - **Coupe pour la CAO (DXF)** : un calque par pièce ; pour chaque lentille, la demi-coupe fermée au-dessus de son axe, qu'il suffit de faire tourner de 360° (FreeCAD : `Révolution`) pour obtenir son volume ; profil complet des miroirs ; faces sphériques en arcs exacts ; calques `AXE` et `RAYONS`.
+  - **Vue affichée en image (PNG)** : la vue telle qu'elle est à l'écran (coupe, spot, FTM…), sans les fenêtres posées dessus.
+
 #### Verres
 Les verres intégrés (N-BK7, N-K5, F2, SF2, N-SF5, N-SF6, N-SF11, N-LAK9, N-SK16, N-BAF10, N-FK51A, N-PK52A, silice fondue, fluorine CaF2) suivent leurs formules de Sellmeier ; leurs anciens noms (BK7, SF11…) restent acceptés. Les catalogues Zemax **`.agf`** (Schott, Ohara, CDGM, Sumita…, en ANSI ou UTF-16) s'importent par le menu `Fichier`, par glisser-déposer, par `--catalogue fichier.agf` ou par l'outil MCP `importer_catalogue_agf` ; ils sont conservés dans `~/.config/freeoptical/verres` et rechargés à chaque démarrage. La syntaxe `nd:Vd` reste disponible pour un verre modèle.
 
@@ -159,6 +166,7 @@ freeoptical --mcp
 - `lancer_simulation()` : Exécute le lancer de rayons séquentiel et retourne les données paraxiales, les rayons 3D et la LSA.
 - `obtenir_spot_diagram(champ_index, longueur_onde_nm, nb_anneaux, sans_points)` : Retourne, pour un champ (une longueur d'onde ou toutes), les impacts au plan image, le centroïde, le rayon RMS et le rayon d'Airy.
 - `ouvrir_systeme(chemin)` / `enregistrer_systeme(chemin)` : ouvre un fichier (JSON de FreeOptical, `.zmx`, `.TDS`/`.RLD`/`.DES`) ou enregistre le système courant en JSON.
+- `exporter_fiche_pdf(chemin)` / `exporter_dxf(chemin)` : fiche du système et plans des pièces en PDF ; coupe pour la CAO en DXF (demi-coupes des lentilles, arcs exacts).
 - `tracer_rayons(rayons, points_seulement)` : trace des rayons choisis (point de pupille, champ, longueur d'onde) et rend leurs impacts 3D sur chaque surface (schémas, contrôles).
 - `optimiser_systeme(variables, cibles)` : Exécute l'optimiseur Damped Least Squares (DLS).
 - `importer_teloptik(chemin)` : Importe un fichier `.TDS`, `.RLD` ou `.DES` (TDESIGN, LENSDES, RAYTRACE) comme système courant.

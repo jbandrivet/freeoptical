@@ -128,7 +128,8 @@ pub struct ImporterTeloptikParams {
     pub chemin: String,
 }
 
-/// Paramètres des outils MCP `ouvrir_systeme(chemin)` et `enregistrer_systeme(chemin)`
+/// Paramètres des outils MCP `ouvrir_systeme(chemin)`, `enregistrer_systeme(chemin)`,
+/// `exporter_fiche_pdf(chemin)` et `exporter_dxf(chemin)`
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct CheminSystemeParams {
     /// Chemin absolu du fichier : `.json` (FreeOptical) ; à l'ouverture aussi `.zmx` (Zemax) ou
@@ -375,7 +376,17 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 24] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 26] = [
+    (
+        "exporter_fiche_pdf",
+        "Writes the PDF sheet of the current system: operating conditions, paraxial data, image quality per field, scaled meridional section, surface table, then a dimensioned manufacturing drawing for each lens (radii CX/CC, centre and edge thickness, diameters, glass, tolerances) and each mirror (conic, departure from the edge sphere). Returns the number of pages and the remarks (parts that cannot be drawn).",
+        "Schreibt das PDF-Datenblatt des aktuellen Systems: Einsatzbedingungen, paraxiale Daten, Bildqualität je Feld, maßstäblicher Meridionalschnitt, Flächentabelle, dann eine bemaßte Fertigungszeichnung je Linse (Radien CX/CC, Mitten- und Randdicke, Durchmesser, Glas, Toleranzen) und je Spiegel (Konik, Abweichung von der Randkugel). Gibt die Seitenzahl und die Hinweise (nicht zeichenbare Teile) zurück.",
+    ),
+    (
+        "exporter_dxf",
+        "Writes the meridional section of the current system as DXF (R12, mm) for CAD: one layer per part, closed half-section of each lens above its axis (revolve it 360° to get the solid), full profile of each mirror, spherical faces as exact arcs, AXE and RAYONS layers.",
+        "Schreibt den Meridionalschnitt des aktuellen Systems als DXF (R12, mm) für CAD: eine Ebene je Teil, geschlossener Halbschnitt jeder Linse über ihrer Achse (um 360° drehen ergibt den Körper), volles Profil jedes Spiegels, Kugelflächen als exakte Bögen, Ebenen AXE und RAYONS.",
+    ),
     (
         "tracer_rayons",
         "Traces the given rays (normalized entrance pupil point, field, wavelength) through the current system and returns, for each one, its hits on every surface (global 3D point, local point, normal, outgoing direction), the surface where it was stopped and its optical path: for layout drawings and checks.",
@@ -1319,6 +1330,35 @@ impl FreeOpticalMcpServer {
         }
     }
 
+    /// Écrit la fiche du système et les plans des pièces en PDF.
+    #[tool(
+        name = "exporter_fiche_pdf",
+        description = "Écrit la fiche PDF du système courant : conditions d'utilisation, données paraxiales, qualité d'image par champ, coupe méridienne à l'échelle, tableau des surfaces, puis un plan de fabrication coté par lentille (rayons CX/CC, épaisseurs au centre et au bord, diamètres, verre, tolérances) et par miroir (conique, écart à la sphère par le bord). Retourne le nombre de pages et les remarques (pièces impossibles à dessiner)."
+    )]
+    pub async fn exporter_fiche_pdf(&self, Parameters(p): Parameters<CheminSystemeParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let (octets, remarques) = crate::core::fiche::fiche_pdf(&sys);
+        let pages = String::from_utf8_lossy(&octets).matches("/Type /Page ").count();
+        match std::fs::write(&p.chemin, &octets) {
+            Ok(()) => serde_json::json!({ "exporte": p.chemin, "pages": pages, "remarques": remarques }).to_string(),
+            Err(e) => serde_json::json!({ "erreur": e.to_string() }).to_string(),
+        }
+    }
+
+    /// Écrit la coupe méridienne en DXF pour la CAO.
+    #[tool(
+        name = "exporter_dxf",
+        description = "Écrit la coupe méridienne du système courant en DXF (R12, mm) pour la CAO : un calque par pièce, demi-coupe fermée de chaque lentille au-dessus de son axe (la faire tourner de 360° donne le volume), profil complet de chaque miroir, faces sphériques en arcs exacts, calques AXE et RAYONS."
+    )]
+    pub async fn exporter_dxf(&self, Parameters(p): Parameters<CheminSystemeParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let d = crate::core::dxf::exporter_dxf(&sys);
+        match std::fs::write(&p.chemin, &d.texte) {
+            Ok(()) => serde_json::json!({ "exporte": p.chemin, "pieces": d.nb_pieces, "remarques": d.remarques }).to_string(),
+            Err(e) => serde_json::json!({ "erreur": e.to_string() }).to_string(),
+        }
+    }
+
     /// Lance l'algorithme d'optimisation Damped Least Squares (DLS) selon les variables et cibles fournies.
     #[tool(
         name = "optimiser_systeme",
@@ -1634,6 +1674,14 @@ mod tests {
         assert!(res.contains("erreur"), "{res}");
         let res = srv.ouvrir_systeme(Parameters(CheminSystemeParams { chemin: dossier.join("absent.json").to_string_lossy().to_string() })).await;
         assert!(res.contains("erreur"), "{res}");
+        // Fiche PDF (caractéristiques, surfaces, 2 miroirs) et DXF du Cassegrain
+        let pdf = dossier.join("fiche.pdf").to_string_lossy().to_string();
+        let res: serde_json::Value = serde_json::from_str(&srv.exporter_fiche_pdf(Parameters(CheminSystemeParams { chemin: pdf.clone() })).await).unwrap();
+        assert_eq!(res["pages"], 4, "{res}");
+        assert!(std::fs::read(&pdf).unwrap().starts_with(b"%PDF"));
+        let dxf = dossier.join("coupe.dxf").to_string_lossy().to_string();
+        let res: serde_json::Value = serde_json::from_str(&srv.exporter_dxf(Parameters(CheminSystemeParams { chemin: dxf })).await).unwrap();
+        assert_eq!(res["pieces"], 2, "{res}");
         std::fs::remove_dir_all(&dossier).ok();
     }
 

@@ -8,6 +8,8 @@ mod bath;
 mod optimisation;
 mod systeme;
 mod fichiers;
+mod historique;
+mod export;
 mod ondes;
 mod solves;
 mod tolerances;
@@ -319,6 +321,12 @@ pub struct FreeOpticalGuiApp {
     pub bath: bath::EtatBath,
     /// Avertissements des solves (calcul impossible, solve mal placé)
     pub alertes_solves: Vec<String>,
+    /// Annuler / Rétablir
+    pub historique: historique::Historique,
+    /// Historique du système nominal pendant qu'un pire tirage de tolérancement est affiché
+    historique_nominal: Option<historique::Historique>,
+    /// Exports (images des vues, fiche PDF, plans des lentilles, DXF)
+    pub export: export::EtatExport,
 }
 
 impl FreeOpticalGuiApp {
@@ -371,7 +379,11 @@ impl FreeOpticalGuiApp {
             bilan_import: None,
             bath: bath::EtatBath::default(),
             alertes_solves,
+            historique: historique::Historique::default(),
+            historique_nominal: None,
+            export: export::EtatExport::default(),
         };
+        app.historique.reinitialiser(&app.systeme);
         app.marquer_enregistre();
         app
     }
@@ -394,8 +406,41 @@ impl FreeOpticalGuiApp {
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
         self.recalculer();
+        self.historique.reinitialiser(&self.systeme);
         self.statut_message = msg.into();
         self.marquer_enregistre();
+    }
+
+    /// Annule la dernière modification du système (Ctrl+Z)
+    pub fn annuler(&mut self) {
+        match self.historique.annuler(&self.systeme) {
+            Some(sys) => {
+                self.systeme = sys;
+                self.recalculer();
+                // Les solves recalculés ne doivent pas compter comme une nouvelle modification
+                self.historique.suivre(&self.systeme, false);
+                self.statut_message = trf!(
+                    "Modification annulée ({} encore annulable(s)) — Ctrl+Y pour la rétablir.",
+                    "Change undone ({} more can be undone) — Ctrl+Y to redo it.",
+                    "Änderung rückgängig gemacht (noch {} möglich) — Strg+Y zum Wiederherstellen.",
+                    self.historique.nb_annulables()
+                );
+            }
+            None => self.statut_message = tr!("Rien à annuler.", "Nothing to undo.", "Nichts rückgängig zu machen.").to_string(),
+        }
+    }
+
+    /// Rétablit la dernière modification annulée (Ctrl+Y ou Ctrl+Maj+Z)
+    pub fn retablir(&mut self) {
+        match self.historique.refaire(&self.systeme) {
+            Some(sys) => {
+                self.systeme = sys;
+                self.recalculer();
+                self.historique.suivre(&self.systeme, false);
+                self.statut_message = tr!("Modification rétablie.", "Change redone.", "Änderung wiederhergestellt.").to_string();
+            }
+            None => self.statut_message = tr!("Rien à rétablir.", "Nothing to redo.", "Nichts wiederherzustellen.").to_string(),
+        }
     }
 
     /// Mémorise l'état actuel comme « enregistré » (rien à demander à la fermeture)
@@ -822,6 +867,22 @@ impl eframe::App for FreeOpticalGuiApp {
             let c = i.modifiers.command;
             (c && i.key_pressed(Key::O), c && !i.modifiers.shift && i.key_pressed(Key::S), c && i.modifiers.shift && i.key_pressed(Key::S))
         });
+        // Annuler / Rétablir, sauf dans un champ de texte (qui a sa propre annulation)
+        if !ctx.text_edit_focused() {
+            let (annuler, retablir) = ctx.input_mut(|i| {
+                let ctrl_z = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Z);
+                let ctrl_maj_z = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::Z);
+                let ctrl_y = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Y);
+                // Le raccourci le plus long d'abord : Ctrl+Z accepterait aussi Ctrl+Maj+Z
+                let retablir = i.consume_shortcut(&ctrl_maj_z) || i.consume_shortcut(&ctrl_y);
+                (i.consume_shortcut(&ctrl_z), retablir)
+            });
+            if annuler {
+                self.annuler();
+            } else if retablir {
+                self.retablir();
+            }
+        }
         if ouvrir {
             self.afficher_fichiers(fichiers::ModeFichiers::Ouvrir);
         } else if enregistrer {
@@ -903,6 +964,19 @@ impl eframe::App for FreeOpticalGuiApp {
                             self.afficher_fichiers(fichiers::ModeFichiers::Enregistrer);
                             ui.close();
                         }
+                        ui.menu_button(tr!("Exporter", "Export", "Exportieren"), |ui| {
+                            let choix = [
+                                (export::TypeExport::Fiche, tr!("Fiche du système et plans des pièces (PDF)…", "System sheet and part drawings (PDF)…", "Systemdatenblatt und Teilezeichnungen (PDF)…")),
+                                (export::TypeExport::Dxf, tr!("Coupe des lentilles et miroirs pour la CAO (DXF)…", "Section of lenses and mirrors for CAD (DXF)…", "Schnitt der Linsen und Spiegel für CAD (DXF)…")),
+                                (export::TypeExport::Image, tr!("Vue affichée en image (PNG)…", "Displayed view as an image (PNG)…", "Angezeigte Ansicht als Bild (PNG)…")),
+                            ];
+                            for (t, libelle) in choix {
+                                if ui.button(libelle).clicked() {
+                                    self.afficher_fichiers(fichiers::ModeFichiers::Exporter(t));
+                                    ui.close();
+                                }
+                            }
+                        });
                         ui.separator();
                         ui.menu_button(tr!("Exemples", "Examples", "Beispiele"), |ui| {
                             if ui
@@ -969,6 +1043,21 @@ impl eframe::App for FreeOpticalGuiApp {
 
                     ui.menu_button(RichText::new(tr!(" Édition ", " Edit ", " Bearbeiten ")).monospace().strong(), |ui| {
                         ui.visuals_mut().override_text_color = Some(COL_DOS_WHITE);
+                        if ui
+                            .add_enabled(self.historique.peut_annuler(&self.systeme), egui::Button::new(tr!("Annuler   (Ctrl+Z)", "Undo   (Ctrl+Z)", "Rückgängig   (Strg+Z)")))
+                            .clicked()
+                        {
+                            self.annuler();
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(self.historique.peut_refaire(), egui::Button::new(tr!("Rétablir   (Ctrl+Y)", "Redo   (Ctrl+Y)", "Wiederherstellen   (Strg+Y)")))
+                            .clicked()
+                        {
+                            self.retablir();
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui.button(tr!("Insérer une surface avant la sélection", "Insert a surface before the selection", "Fläche vor der Auswahl einfügen")).clicked() {
                             let mut s =
                                 Surface::nouvelle(SurfaceType::Spherique, 100.0, 5.0, "BK7", 15.0);
@@ -1266,7 +1355,7 @@ impl eframe::App for FreeOpticalGuiApp {
                     }
                 });
                 ui.add_space(4.0);
-                cadre_dos(ui, self.vue_active.titre(), |ui| match self.vue_active {
+                let rect_vue = ui.scope(|ui| cadre_dos(ui, self.vue_active.titre(), |ui| match self.vue_active {
                     ActiveView::Coupe2D => self.dessiner_canevas_2d(ui),
                     ActiveView::Filaire3D => self.dessiner_canevas_3d(ui),
                     ActiveView::SpotDiagram => self.dessiner_canevas_spot(ui),
@@ -1282,16 +1371,23 @@ impl eframe::App for FreeOpticalGuiApp {
                     ActiveView::EnergieEncerclee => self.dessiner_energie(ui),
                     ActiveView::Chromatique => self.dessiner_chromatique(ui),
                     ActiveView::Empreinte => self.dessiner_empreinte(ui),
-                });
+                }))
+                .response
+                .rect;
+                self.export.rect_vue = Some(rect_vue);
             });
 
-        self.dessiner_fenetre_maj(&ctx);
-        self.dessiner_fenetre_fichiers(&ctx);
-        self.dessiner_confirmation_fermeture(&ctx);
-        self.dessiner_fenetre_optimisation(&ctx);
-        self.dessiner_fenetre_tolerancement(&ctx);
-        self.dessiner_fenetre_systeme(&ctx);
-        self.dessiner_fenetre_bath(&ctx);
+        // Pendant la capture d'une vue, les fenêtres flottantes sont masquées (quelques images)
+        if !self.export.capture_en_cours() {
+            self.dessiner_fenetre_maj(&ctx);
+            self.dessiner_fenetre_fichiers(&ctx);
+            self.dessiner_confirmation_fermeture(&ctx);
+            self.dessiner_fenetre_optimisation(&ctx);
+            self.dessiner_fenetre_tolerancement(&ctx);
+            self.dessiner_fenetre_systeme(&ctx);
+            self.dessiner_fenetre_bath(&ctx);
+        }
+        self.suivre_export(&ctx);
 
         // Glisser-déposer d'un fichier système (.json, .zmx, .TDS, .RLD, .DES) sur la fenêtre
         let depose = ctx.input(|i| i.raw.dropped_files.iter().find_map(|f| {
@@ -1308,6 +1404,10 @@ impl eframe::App for FreeOpticalGuiApp {
                 self.fenetre_import = true;
             }
         }
+
+        // Annuler / Rétablir : une modification devient une étape quand le geste est fini
+        let geste_en_cours = ctx.input(|i| i.pointer.any_down()) || ctx.text_edit_focused();
+        self.historique.suivre(&self.systeme, geste_en_cours);
     }
 }
 

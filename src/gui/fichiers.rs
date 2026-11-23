@@ -9,6 +9,17 @@ pub enum ModeFichiers {
     #[default]
     Ouvrir,
     Enregistrer,
+    Exporter(super::export::TypeExport),
+}
+
+impl ModeFichiers {
+    /// Extension imposée au fichier écrit (Enregistrer, Exporter)
+    fn extension(self) -> &'static str {
+        match self {
+            ModeFichiers::Exporter(t) => t.extension(),
+            _ => "json",
+        }
+    }
 }
 
 /// Fichier de préférence du dernier dossier : `~/.config/freeoptical/dossier`
@@ -48,7 +59,7 @@ pub fn dossier_initial() -> String {
         .unwrap_or_default()
 }
 
-fn memoriser_dossier(dossier: &Path) {
+pub(super) fn memoriser_dossier(dossier: &Path) {
     // Les tests ne touchent pas aux préférences de l'utilisateur
     if cfg!(test) {
         return;
@@ -61,8 +72,12 @@ fn memoriser_dossier(dossier: &Path) {
     }
 }
 
+fn a_extension(p: &Path, ext: &str) -> bool {
+    p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case(ext))
+}
+
 fn est_json(p: &Path) -> bool {
-    p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("json"))
+    a_extension(p, "json")
 }
 
 /// Nature d'un fichier que FreeOptical sait ouvrir
@@ -86,6 +101,9 @@ impl FreeOpticalGuiApp {
         self.mode_fichiers = mode;
         self.bilan_import = None;
         self.confirmer_remplacement = None;
+        if let ModeFichiers::Exporter(t) = mode {
+            self.nom_enregistrement = self.nom_export(t);
+        }
         if mode == ModeFichiers::Enregistrer {
             self.nom_enregistrement = self
                 .chemin_courant
@@ -146,6 +164,7 @@ impl FreeOpticalGuiApp {
         let titre = match mode {
             ModeFichiers::Ouvrir => tr!(" Ouvrir un système ou un catalogue de verres ", " Open a system or a glass catalogue ", " System oder Glaskatalog öffnen "),
             ModeFichiers::Enregistrer => tr!(" Enregistrer le système sous… ", " Save the system as… ", " System speichern unter… "),
+            ModeFichiers::Exporter(t) => t.titre(),
         };
         egui::Window::new(RichText::new(titre).monospace().strong())
             .open(&mut ouverte)
@@ -202,7 +221,7 @@ impl FreeOpticalGuiApp {
                                 dossiers.push(p);
                             } else if match mode {
                                 ModeFichiers::Ouvrir => nature(&p).is_some(),
-                                ModeFichiers::Enregistrer => est_json(&p),
+                                ModeFichiers::Enregistrer | ModeFichiers::Exporter(_) => a_extension(&p, mode.extension()),
                             } {
                                 fichiers.push(p);
                             }
@@ -227,7 +246,7 @@ impl FreeOpticalGuiApp {
                             if ui.selectable_label(false, RichText::new(texte).monospace().color(COL_DOS_WHITE)).clicked() {
                                 match mode {
                                     ModeFichiers::Ouvrir => a_ouvrir = Some(f.clone()),
-                                    ModeFichiers::Enregistrer => {
+                                    ModeFichiers::Enregistrer | ModeFichiers::Exporter(_) => {
                                         self.nom_enregistrement = nom.into_owned();
                                         self.confirmer_remplacement = None;
                                     }
@@ -248,12 +267,12 @@ impl FreeOpticalGuiApp {
                         if lisible && dossiers.is_empty() && fichiers.is_empty() {
                             ui.label(RichText::new(match mode {
                                 ModeFichiers::Ouvrir => tr!("Aucun fichier reconnu dans ce dossier.", "No supported file in this folder.", "Keine unterstützte Datei in diesem Ordner."),
-                                ModeFichiers::Enregistrer => tr!("Dossier vide.", "Empty folder.", "Leerer Ordner."),
+                                ModeFichiers::Enregistrer | ModeFichiers::Exporter(_) => tr!("Dossier vide.", "Empty folder.", "Leerer Ordner."),
                             }).color(COL_DOS_GRAY));
                         }
                     });
                 });
-                if mode == ModeFichiers::Enregistrer {
+                if mode != ModeFichiers::Ouvrir {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label(tr!("Nom :", "Name:", "Name:"));
@@ -264,13 +283,16 @@ impl FreeOpticalGuiApp {
                             self.confirmer_remplacement = None;
                         }
                         let mut nom = self.nom_enregistrement.trim().to_string();
-                        if !nom.is_empty() && !nom.to_lowercase().ends_with(".json") {
-                            nom.push_str(".json");
+                        let ext = format!(".{}", mode.extension());
+                        if !nom.is_empty() && !nom.to_lowercase().ends_with(&ext) {
+                            nom.push_str(&ext);
                         }
                         let cible = dossier.join(&nom);
                         let remplacer = self.confirmer_remplacement.as_ref() == Some(&cible);
                         let libelle = if remplacer {
                             tr!("Remplacer le fichier", "Replace the file", "Datei ersetzen")
+                        } else if matches!(mode, ModeFichiers::Exporter(_)) {
+                            tr!("Exporter", "Export", "Exportieren")
                         } else {
                             tr!("Enregistrer", "Save", "Speichern")
                         };
@@ -316,7 +338,13 @@ impl FreeOpticalGuiApp {
                 fermer = true;
             }
         }
-        if let Some(c) = a_enregistrer {
+        if let (Some(c), ModeFichiers::Exporter(t)) = (&a_enregistrer, mode) {
+            self.bilan_import = None;
+            // Export réussi sans remarque : la fenêtre se ferme ; sinon le bilan reste affiché
+            if self.exporter(t, c) && self.bilan_import.is_none() {
+                fermer = true;
+            }
+        } else if let Some(c) = a_enregistrer {
             if self.enregistrer_sous(&c) {
                 fermer = true;
                 // Enregistrement demandé en quittant : on quitte maintenant
