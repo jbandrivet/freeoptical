@@ -3,6 +3,7 @@
 pub mod aberrations;
 pub mod bath;
 pub mod chromatique;
+pub mod configurations;
 pub mod dessin;
 pub mod dxf;
 pub mod empreinte;
@@ -37,9 +38,14 @@ pub fn ouvrir_fichier_systeme(chemin: &Path) -> Result<(types::OpticalSystem, Ve
         Ok((import.systeme, import.avertissements))
     } else {
         let contenu = std::fs::read_to_string(chemin).map_err(|e| format!("{} : {e}", chemin.display()))?;
-        let systeme = serde_json::from_str::<types::OpticalSystem>(&contenu)
+        let mut systeme = serde_json::from_str::<types::OpticalSystem>(&contenu)
             .map_err(|e| format!("{} : {e}", chemin.display()))?;
-        Ok((systeme, Vec::new()))
+        // Les surfaces prennent les valeurs de la configuration active
+        let mut avertissements = Vec::new();
+        if !systeme.configurations.operandes.is_empty() {
+            avertissements = systeme.appliquer_configuration(systeme.configurations.active);
+        }
+        Ok((systeme, avertissements))
     }
 }
 

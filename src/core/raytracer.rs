@@ -641,11 +641,13 @@ mod tests {
                 type_cible: "focale".to_string(),
                 valeur_cible: 100.0,
                 poids: 1.0,
+                configuration: None,
             },
             OptimizationTarget {
                 type_cible: "spot_rms".to_string(),
                 valeur_cible: 0.0,
                 poids: 1.0,
+                configuration: None,
             },
         ];
 

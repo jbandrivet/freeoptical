@@ -359,6 +359,8 @@ impl AppState {
 
     /// Recalcule immédiatement les données paraxiales, le Spot Diagram et l'aberration sphérique
     pub fn recalculer(&mut self) {
+        // Les modifications vont dans la colonne de la configuration active
+        self.systeme.capturer_configuration();
         let alertes = crate::core::solves::appliquer_solves(&mut self.systeme);
         if let Some(a) = alertes.first() {
             self.statut_message = a.clone();
@@ -530,6 +532,7 @@ impl AppState {
         nouv.commentaire = tr!("Nouvelle Surface", "New Surface", "Neue Fläche").to_string();
         let idx = self.ligne_selectionnee.min(self.systeme.surfaces.len());
         self.systeme.surfaces.insert(idx, nouv);
+        self.systeme.surface_inseree(idx);
         self.recalculer();
         self.statut_message = trf!("Surface insérée à la position #{}.", "Surface inserted at position #{}.", "Fläche an Position #{} eingefügt.", idx + 1);
     }
@@ -540,9 +543,41 @@ impl AppState {
         nouv.commentaire = tr!("Dioptre Ajouté", "Added Surface", "Hinzugefügte Fläche").to_string();
         let idx = self.systeme.surfaces.len().saturating_sub(1);
         self.systeme.surfaces.insert(idx, nouv);
+        self.systeme.surface_inseree(idx);
         self.ligne_selectionnee = idx;
         self.recalculer();
         self.statut_message = trf!("Surface ajoutée en position #{} (avant Plan Image).", "Surface added at position #{} (before the Image Plane).", "Fläche an Position #{} hinzugefügt (vor der Bildebene).", idx + 1);
+    }
+
+    /// Passe à la configuration suivante (touche N), modifications de l'active gardées
+    pub fn configuration_suivante(&mut self) {
+        let nb = self.systeme.nb_configurations();
+        if nb <= 1 {
+            self.statut_message = tr!(
+                "Une seule configuration (les configurations se créent dans la fenêtre graphique ou par MCP).",
+                "Only one configuration (configurations are created in the graphical window or through MCP).",
+                "Nur eine Konfiguration (Konfigurationen werden im grafischen Fenster oder über MCP angelegt)."
+            )
+            .to_string();
+            return;
+        }
+        let k = (self.systeme.configurations.active + 1) % nb;
+        let erreurs = self.systeme.changer_configuration(k);
+        self.recalculer();
+        self.statut_message = if erreurs.is_empty() {
+            trf!(
+                "Configuration {}/{} : {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
+                "Configuration {}/{}: {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
+                "Konfiguration {}/{}: {} | EFFL = {:.2} mm | Spot RMS = {:.2} µm",
+                k + 1,
+                nb,
+                self.systeme.configurations.nom(k),
+                self.paraxial.focale_effl_mm,
+                self.spot.rayon_rms_um
+            )
+        } else {
+            erreurs.join(" ; ")
+        };
     }
 
     /// Supprime la surface sélectionnée (en conservant au moins 2 surfaces)
@@ -558,6 +593,7 @@ impl AppState {
             return;
         }
         self.systeme.surfaces.remove(self.ligne_selectionnee);
+        self.systeme.surface_supprimee(self.ligne_selectionnee);
         if self.ligne_selectionnee >= self.systeme.surfaces.len() {
             self.ligne_selectionnee = self.systeme.surfaces.len() - 1;
         }
@@ -609,11 +645,13 @@ impl AppState {
                 type_cible: "focale".to_string(),
                 valeur_cible: cible_focale,
                 poids: 1.0,
+                configuration: None,
             },
             OptimizationTarget {
                 type_cible: "spot_rms_champs".to_string(),
                 valeur_cible: 0.0,
                 poids: 2.0,
+                configuration: None,
             },
         ];
 

@@ -559,6 +559,9 @@ pub struct OpticalSystem {
     /// Tolérances de fabrication et d'alignement (éditeur de tolérances)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tolerances: Vec<crate::core::tolerance::Tolerance>,
+    /// Configurations multiples (mises au point, objets, bandes, réglages différents)
+    #[serde(default, skip_serializing_if = "crate::core::configurations::Configurations::est_vide")]
+    pub configurations: crate::core::configurations::Configurations,
 }
 
 impl Default for OpticalSystem {
@@ -587,6 +590,7 @@ impl OpticalSystem {
             distance_objet_mm: None,
             afocal: false,
             tolerances: Vec::new(),
+            configurations: Default::default(),
         }
     }
 
@@ -616,6 +620,7 @@ impl OpticalSystem {
             distance_objet_mm: None,
             afocal: false,
             tolerances: Vec::new(),
+            configurations: Default::default(),
         }
     }
 

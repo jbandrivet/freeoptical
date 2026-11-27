@@ -50,6 +50,7 @@ pub fn creer_interferometre_bath() -> OpticalSystem {
         distance_objet_mm: None,
         afocal: false,
         tolerances: Vec::new(),
+        configurations: Default::default(),
     }
 }
 
@@ -76,6 +77,7 @@ pub fn creer_singlet_aspherique() -> OpticalSystem {
         distance_objet_mm: None,
         afocal: false,
         tolerances: Vec::new(),
+        configurations: Default::default(),
     }
 }
 
@@ -104,6 +106,7 @@ pub fn creer_telescope_cassegrain() -> OpticalSystem {
         distance_objet_mm: None,
         afocal: false,
         tolerances: Vec::new(),
+        configurations: Default::default(),
     }
 }
 
@@ -138,8 +141,56 @@ pub fn creer_spectrographe_reseau() -> OpticalSystem {
         distance_objet_mm: Some(200.0),
         afocal: false,
         tolerances: Vec::new(),
+        configurations: Default::default(),
     }
 }
+
+/// Lunette 100 mm à deux configurations : mise au point à l'infini et sur un objet à 5 m.
+/// Seuls la distance de l'objet, la hauteur du champ (même angle de 2,5°) et le tirage changent ;
+/// les tirages viennent d'une optimisation commune du spot RMS (variable dans chaque configuration).
+pub fn creer_lunette_deux_mises_au_point() -> OpticalSystem {
+    use crate::core::configurations::{OperandeConfig, TypeOperande, ValeurConfig};
+    let mut sys = OpticalSystem::doublet_achromatique_defaut();
+    sys.nom = tr!(
+        "Lunette 100 mm : infini et objet à 5 m",
+        "100 mm refractor: infinity and object at 5 m",
+        "100-mm-Refraktor: unendlich und Objekt in 5 m"
+    )
+    .to_string();
+    sys.surfaces[2].epaisseur = TIRAGES_LUNETTE[0];
+    let hauteur_5m = 5000.0 * 2.5_f64.to_radians().tan();
+    sys.configurations = crate::core::configurations::Configurations {
+        noms: vec![
+            tr!("Infini", "Infinity", "Unendlich").to_string(),
+            tr!("Objet à 5 m", "Object at 5 m", "Objekt in 5 m").to_string(),
+        ],
+        active: 0,
+        operandes: vec![
+            OperandeConfig {
+                type_op: TypeOperande::DistanceObjet,
+                index: 0,
+                valeurs: vec![ValeurConfig::depuis_nombre(f64::INFINITY), ValeurConfig::Nombre(5000.0)],
+                variable: false,
+            },
+            OperandeConfig {
+                type_op: TypeOperande::ChampY,
+                index: 1,
+                valeurs: vec![ValeurConfig::Nombre(2.5), ValeurConfig::Nombre((hauteur_5m * 100.0).round() / 100.0)],
+                variable: false,
+            },
+            OperandeConfig {
+                type_op: TypeOperande::Epaisseur,
+                index: 2,
+                valeurs: TIRAGES_LUNETTE.iter().map(|&v| ValeurConfig::Nombre(v)).collect(),
+                variable: true,
+            },
+        ],
+    };
+    sys
+}
+
+/// Tirages optimisés de la lunette (infini, 5 m), en mm
+const TIRAGES_LUNETTE: [f64; 2] = [93.5747, 95.5598];
 
 #[cfg(test)]
 mod tests {
@@ -258,9 +309,24 @@ mod tests {
             type_cible: "spot_rms".to_string(),
             valeur_cible: 0.0,
             poids: 1.0,
+            configuration: None,
         }];
         optimiser_systeme_dls(&mut sys, &vars, &cibles, 20);
         assert!(sys.surfaces[0].epaisseur < -70.0, "épaisseur = {}", sys.surfaces[0].epaisseur);
         assert!(calculer_spot_diagram(&sys, (0.0, 0.0), 4).rayon_rms_um < 13.0);
+    }
+
+    #[test]
+    fn lunette_deux_mises_au_point_deja_optimisee() {
+        let mut sys = creer_lunette_deux_mises_au_point();
+        assert!(sys.verifier_configurations().is_empty());
+        let avant: Vec<f64> = TIRAGES_LUNETTE.to_vec();
+        let vars = vec![OptimizationVariable { index_surface: 2, parametre: "epaisseur".into() }];
+        let cibles = vec![OptimizationTarget { type_cible: "spot_rms_champs".into(), valeur_cible: 0.0, poids: 1.0, configuration: None }];
+        optimiser_systeme_dls(&mut sys, &vars, &cibles, 30);
+        let apres: Vec<f64> = sys.configurations.operandes[2].valeurs.iter().map(|v| v.nombre().unwrap()).collect();
+        for k in 0..2 {
+            assert!((apres[k] - avant[k]).abs() < 2e-3, "config {k} : {} → {}", avant[k], apres[k]);
+        }
     }
 }

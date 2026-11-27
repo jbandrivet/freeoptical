@@ -137,6 +137,35 @@ pub struct CheminSystemeParams {
     pub chemin: String,
 }
 
+/// Paramètres de l'outil MCP `definir_configurations`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct DefinirConfigurationsParams {
+    /// Nom de chaque configuration, dans l'ordre (ex. `["Infini", "Objet à 5 m"]`) ; leur
+    /// nombre fixe le nombre de configurations. Liste vide : une seule configuration.
+    pub noms: Vec<String>,
+    /// Paramètres qui changent d'une configuration à l'autre, chacun avec une valeur par
+    /// configuration : `{"type":"epaisseur","index":2,"valeurs":[93.7,95.8],"variable":true}`.
+    /// Types : rayon, epaisseur, conique, verre, demi_diametre, decentrement_x, decentrement_y,
+    /// inclinaison_x, inclinaison_y, inclinaison_z, obstruction, reseau_traits, reseau_ordre
+    /// (index = surface 0..N-1) ; champ_x, champ_y (index = champ, 0 = premier) ; longueur_onde
+    /// (index = longueur d'onde) ; ouverture, distance_objet, longueur_onde_ref (sans index).
+    /// Valeurs : nombres, `"inf"` (rayon plan, objet à l'infini) ou nom de verre. Une valeur
+    /// manquante prend celle du système. `variable` : l'optimiseur fait varier ce paramètre
+    /// séparément dans chaque configuration (rayon, épaisseur, conique, décentrements, inclinaisons).
+    #[serde(default)]
+    pub operandes: Vec<crate::core::configurations::OperandeConfig>,
+    /// Configuration à rendre active (0 = première, par défaut)
+    #[serde(default)]
+    pub active: Option<usize>,
+}
+
+/// Paramètres de l'outil MCP `choisir_configuration`
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+pub struct ChoisirConfigurationParams {
+    /// Configuration à rendre active (0 = première)
+    pub index: usize,
+}
+
 /// Paramètres de l'outil MCP `obtenir_spot_diagram`
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 pub struct SpotDiagramParams {
@@ -376,7 +405,22 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 26] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 29] = [
+    (
+        "definir_configurations",
+        "Sets the configurations of the current system (like the Zemax multi-configuration editor): one name per configuration and the parameters that change from one to another (thickness, radius, conic, glass, decenter, tilt, grating, aperture, object distance, field, wavelength), each with one value per configuration, possibly an optimizer variable in each configuration. Everything else is shared. Makes the chosen configuration active (the analyses and exports use it) and returns the check and the comparison of the configurations.",
+        "Legt die Konfigurationen des aktuellen Systems fest (wie der Mehrfachkonfigurations-Editor von Zemax): ein Name je Konfiguration und die Parameter, die sich von einer zur anderen ändern (Dicke, Radius, Konik, Glas, Dezentrierung, Kippung, Gitter, Öffnung, Objektabstand, Feld, Wellenlänge), jeder mit einem Wert je Konfiguration, wahlweise als Optimierungsvariable in jeder Konfiguration. Alles andere ist gemeinsam. Aktiviert die gewählte Konfiguration (Analysen und Exporte verwenden sie) und gibt die Prüfung und den Vergleich der Konfigurationen zurück.",
+    ),
+    (
+        "choisir_configuration",
+        "Makes a configuration of the current system active (0 = first): the surfaces take its values, the changes made in the previous one are kept. All analyses, exports and tolerancing then apply to it.",
+        "Aktiviert eine Konfiguration des aktuellen Systems (0 = erste): die Flächen übernehmen ihre Werte, die Änderungen in der vorherigen bleiben erhalten. Alle Analysen, Exporte und die Tolerierung gelten dann für sie.",
+    ),
+    (
+        "comparer_configurations",
+        "Compares the configurations of the current system: focal length, F-number, back focus, total length, RMS spot of each field and Airy radius in each configuration.",
+        "Vergleicht die Konfigurationen des aktuellen Systems: Brennweite, Blendenzahl, Schnittweite, Baulänge, RMS-Spot jedes Feldes und Airy-Radius in jeder Konfiguration.",
+    ),
     (
         "exporter_fiche_pdf",
         "Writes the PDF sheet of the current system: operating conditions, paraxial data, image quality per field, scaled meridional section, surface table, then a dimensioned manufacturing drawing for each lens (radii CX/CC, centre and edge thickness, diameters, glass, tolerances) and each mirror (conic, departure from the edge sphere). Returns the number of pages and the remarks (parts that cannot be drawn).",
@@ -504,8 +548,8 @@ const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 26] = [
     ),
     (
         "optimiser_systeme",
-        "Runs the Damped Least Squares optimizer (DLS / Levenberg-Marquardt) on the selected variables to reach a focal length or minimize the RMS spot / spherical aberration.",
-        "Startet die Optimierung nach Damped Least Squares (DLS / Levenberg-Marquardt) mit den gewählten Variablen, um eine Brennweite zu erreichen oder den RMS-Spot / die sphärische Aberration zu minimieren.",
+        "Runs the Damped Least Squares optimizer (DLS / Levenberg-Marquardt) on the selected variables to reach a focal length or minimize the RMS spot / spherical aberration. With several configurations, every target counts in each configuration (or only in the one given by its `configuration` field) and the parameters marked as variable in the configurations vary in each one.",
+        "Startet die Optimierung nach Damped Least Squares (DLS / Levenberg-Marquardt) mit den gewählten Variablen, um eine Brennweite zu erreichen oder den RMS-Spot / die sphärische Aberration zu minimieren. Bei mehreren Konfigurationen zählt jedes Ziel in jeder Konfiguration (oder nur in der durch sein Feld `configuration` angegebenen), und die in den Konfigurationen als variabel markierten Parameter variieren in jeder.",
     ),
 ];
 
@@ -583,6 +627,7 @@ impl FreeOpticalMcpServer {
         let verre_connu = sys.catalogue.est_connu(&surf.verre);
         let verre = surf.verre.clone();
         sys.surfaces.insert(pos_insertion, surf);
+        sys.surface_inseree(pos_insertion);
         crate::core::solves::appliquer_solves(&mut sys);
 
         let paraxial = calculer_paraxial(&sys);
@@ -1359,10 +1404,87 @@ impl FreeOpticalMcpServer {
         }
     }
 
+    /// Définit les configurations multiples du système courant.
+    #[tool(
+        name = "definir_configurations",
+        description = "Définit les configurations du système courant (comme l'éditeur multi-configuration de Zemax) : un nom par configuration et les paramètres qui changent de l'une à l'autre (épaisseur, rayon, conique, verre, décentrement, inclinaison, réseau, ouverture, distance de l'objet, champ, longueur d'onde), chacun avec une valeur par configuration, éventuellement variable de l'optimiseur dans chaque configuration. Tout le reste est commun. Rend active la configuration choisie (les analyses et exports portent sur elle) et retourne la vérification et la comparaison des configurations."
+    )]
+    pub async fn definir_configurations(&self, Parameters(p): Parameters<DefinirConfigurationsParams>) -> String {
+        let mut sys = self.systeme.lock().unwrap();
+        // Les valeurs manquantes prennent celles du système dans sa configuration de base
+        let base = sys.configurations.active;
+        sys.capturer_configuration();
+        if sys.nb_configurations() > 1 && base != 0 {
+            sys.appliquer_configuration(0);
+        }
+        let mut operandes = p.operandes;
+        for op in &mut operandes {
+            if op.valeurs.is_empty() {
+                if let Ok(v) = sys.lire_operande(op.type_op, op.index) {
+                    op.valeurs.push(v);
+                }
+            }
+        }
+        sys.configurations = crate::core::configurations::Configurations {
+            noms: if p.noms.len() > 1 { p.noms } else { p.noms.into_iter().take(1).collect() },
+            active: 0,
+            operandes,
+        };
+        let active = p.active.unwrap_or(0).min(sys.nb_configurations() - 1);
+        let problemes = sys.verifier_configurations();
+        sys.appliquer_configuration(active);
+        crate::core::solves::appliquer_solves(&mut sys);
+        serde_json::to_string_pretty(&serde_json::json!({
+            "configurations": &sys.configurations,
+            "active": active,
+            "problemes": problemes,
+            "bilan": crate::core::configurations::bilan_configurations(&sys),
+        }))
+        .unwrap_or_default()
+    }
+
+    /// Rend active une configuration.
+    #[tool(
+        name = "choisir_configuration",
+        description = "Rend active une configuration du système courant (0 = première) : les surfaces prennent ses valeurs, les modifications faites dans la précédente sont gardées. Toutes les analyses, exports et le tolérancement portent ensuite sur elle."
+    )]
+    pub async fn choisir_configuration(&self, Parameters(p): Parameters<ChoisirConfigurationParams>) -> String {
+        let mut sys = self.systeme.lock().unwrap();
+        let nb = sys.nb_configurations();
+        if p.index >= nb {
+            return serde_json::json!({ "erreur": trf!("configuration {} absente ({} configurations)", "configuration {} missing ({} configurations)", "Konfiguration {} fehlt ({} Konfigurationen)", p.index, nb) }).to_string();
+        }
+        let erreurs = sys.changer_configuration(p.index);
+        crate::core::solves::appliquer_solves(&mut sys);
+        serde_json::to_string_pretty(&serde_json::json!({
+            "active": p.index,
+            "nom": sys.configurations.nom(p.index),
+            "nb_configurations": nb,
+            "erreurs": erreurs,
+            "paraxial": calculer_paraxial(&sys),
+        }))
+        .unwrap_or_default()
+    }
+
+    /// Compare les configurations.
+    #[tool(
+        name = "comparer_configurations",
+        description = "Compare les configurations du système courant : focale, nombre d'ouverture, tirage, longueur totale, spot RMS de chaque champ et rayon d'Airy dans chaque configuration."
+    )]
+    pub async fn comparer_configurations(&self) -> String {
+        let mut sys = self.systeme.lock().unwrap();
+        sys.capturer_configuration();
+        serde_json::to_string_pretty(&serde_json::json!({
+            "active": sys.configurations.active,
+            "bilan": crate::core::configurations::bilan_configurations(&sys),
+        }))
+        .unwrap_or_default()
+    }
+
     /// Lance l'algorithme d'optimisation Damped Least Squares (DLS) selon les variables et cibles fournies.
     #[tool(
         name = "optimiser_systeme",
-        description = "Lance l'algorithme d'optimisation Damped Least Squares (DLS / Levenberg-Marquardt) sur les variables sélectionnées pour atteindre une focale ou minimiser le Spot RMS / l'aberration sphérique."
+        description = "Lance l'algorithme d'optimisation Damped Least Squares (DLS / Levenberg-Marquardt) sur les variables sélectionnées pour atteindre une focale ou minimiser le Spot RMS / l'aberration sphérique. Avec plusieurs configurations, chaque cible compte dans chacune (ou seulement dans celle de son champ `configuration`) et les paramètres marqués variables dans les configurations varient dans chacune."
     )]
     pub async fn optimiser_systeme(
         &self,
@@ -1389,6 +1511,44 @@ mod tests {
         for (nom, _, _) in DESCRIPTIONS_OUTILS {
             assert!(routeur.map.contains_key(nom), "outil {nom} absent");
         }
+    }
+
+    #[tokio::test]
+    async fn test_outils_mcp_configurations() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let ops: Vec<crate::core::configurations::OperandeConfig> = serde_json::from_value(serde_json::json!([
+            {"type": "distance_objet", "valeurs": ["inf", 5000.0]},
+            {"type": "epaisseur", "index": 2, "valeurs": [93.0, 93.0], "variable": true},
+            {"type": "verre", "index": 1, "valeurs": ["F2", "PASUNVERRE"]}
+        ]))
+        .unwrap();
+        let res = srv
+            .definir_configurations(Parameters(DefinirConfigurationsParams { noms: vec!["Infini".into(), "5 m".into()], operandes: ops, active: None }))
+            .await;
+        let v: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(v["bilan"].as_array().unwrap().len(), 2);
+        assert_eq!(v["problemes"].as_array().unwrap().len(), 1, "{res}");
+        // Corriger le verre puis optimiser la mise au point de chaque configuration
+        srv.systeme.lock().unwrap().configurations.operandes[2].valeurs[1] = crate::core::configurations::ValeurConfig::Texte("F2".into());
+        let res = srv
+            .optimiser_systeme(Parameters(OptimiserSystemeParams {
+                variables: vec![OptimizationVariable { index_surface: 2, parametre: "epaisseur".into() }],
+                cibles: vec![OptimizationTarget { type_cible: "spot_rms_champs".into(), valeur_cible: 0.0, poids: 1.0, configuration: None }],
+            }))
+            .await;
+        assert!(res.contains("2 configurations"), "{res}");
+        let res = srv.choisir_configuration(Parameters(ChoisirConfigurationParams { index: 1 })).await;
+        let v: serde_json::Value = serde_json::from_str(&res).unwrap();
+        assert_eq!(v["nom"], "5 m");
+        let ep1 = srv.systeme.lock().unwrap().surfaces[2].epaisseur;
+        assert_eq!(srv.systeme.lock().unwrap().distance_objet_mm, Some(5000.0));
+        let res = srv.comparer_configurations().await;
+        let v: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let t0 = v["bilan"][0]["tirage_mm"].as_f64().unwrap();
+        let t1 = v["bilan"][1]["tirage_mm"].as_f64().unwrap();
+        assert!((t1 - t0 - 2.06).abs() < 0.05, "tirages {t0} {t1}");
+        assert!((ep1 - 95.7).abs() < 0.2, "mise au point à 5 m : {ep1}");
+        assert!(srv.choisir_configuration(Parameters(ChoisirConfigurationParams { index: 5 })).await.contains("erreur"));
     }
 
     #[tokio::test]
@@ -1462,11 +1622,13 @@ mod tests {
                         type_cible: "focale".to_string(),
                         valeur_cible: 100.0,
                         poids: 1.0,
+                        configuration: None,
                     },
                     OptimizationTarget {
                         type_cible: "spot_rms".to_string(),
                         valeur_cible: 0.0,
                         poids: 1.0,
+                        configuration: None,
                     },
                 ],
             }))

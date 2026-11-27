@@ -205,7 +205,15 @@ fn dessiner_catalogue_verres(f: &mut Frame, zone: Rect, app: &AppState) {
 
 fn dessiner_barre_statut(f: &mut Frame, zone: Rect, app: &AppState) {
     let raccourcis = tr!(" Flèches:Nav | Entrée:Éditer | A:Ajouter | Suppr:Effacer | T:Type | O:Optimiser DLS | Q:Quitter ", " Arrows:Nav | Enter:Edit | A:Add | Del:Delete | T:Type | O:Optimize DLS | Q:Quit ", " Pfeile:Nav | Eingabe:Bearb. | A:Neu | Entf:Löschen | T:Typ | O:DLS optim. | Q:Ende ");
+    let nb = app.systeme.nb_configurations();
+    let config = if nb > 1 {
+        let k = app.systeme.configurations.active;
+        trf!(" N:Config {}/{} {} ", " N:Config {}/{} {} ", " N:Konfig {}/{} {} ", k + 1, nb, app.systeme.configurations.nom(k))
+    } else {
+        String::new()
+    };
     let ligne = Line::from(vec![
+        Span::styled(config, Style::default().bg(Color::Rgb(120, 0, 120)).fg(DOS_WHITE).add_modifier(Modifier::BOLD)),
         Span::styled(
             raccourcis,
             Style::default()
@@ -418,6 +426,7 @@ fn gerer_clavier(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
         KeyCode::Char('p') | KeyCode::Char('P') => {
             app.mise_au_point_paraxiale();
         }
+        KeyCode::Char('n') | KeyCode::Char('N') => app.configuration_suivante(),
         KeyCode::Char('r') | KeyCode::Char('R') => {
             app.recalculer();
             app.statut_message = tr!("Calcul séquentiel mis à jour.", "Sequential computation updated.", "Sequentielle Berechnung aktualisiert.").to_string();
@@ -458,5 +467,26 @@ mod tests {
         assert!(texte.contains("INTERFÉROGRAMME") && texte.contains("▀"), "vue Bath non dessinée");
         gerer_clavier(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert!(app.bath.is_none());
+    }
+
+    #[test]
+    fn touche_n_change_de_configuration() {
+        let backend = TestBackend::new(160, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = AppState::nouveau(crate::core::presets::creer_lunette_deux_mises_au_point());
+        // Une modification de la config 1 est gardée quand on revient
+        app.systeme.surfaces[0].commentaire = "modifiée".into();
+        app.systeme.surfaces[2].epaisseur = 93.6;
+        gerer_clavier(&mut app, KeyCode::Char('n'), KeyModifiers::NONE);
+        assert_eq!(app.systeme.configurations.active, 1);
+        assert_eq!(app.systeme.distance_objet_mm, Some(5000.0));
+        assert!((app.systeme.surfaces[2].epaisseur - 95.5598).abs() < 1e-9);
+        terminal.draw(|f| dessiner_interface(f, &app)).unwrap();
+        let texte: String = terminal.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        assert!(texte.contains("N:Config 2/2"), "configuration non affichée");
+        gerer_clavier(&mut app, KeyCode::Char('N'), KeyModifiers::NONE);
+        assert_eq!(app.systeme.configurations.active, 0);
+        assert_eq!(app.systeme.surfaces[2].epaisseur, 93.6);
+        assert_eq!(app.systeme.surfaces[0].commentaire, "modifiée");
     }
 }

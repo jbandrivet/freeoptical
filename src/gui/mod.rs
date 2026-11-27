@@ -5,6 +5,7 @@
 mod aberrations;
 mod analyses;
 mod bath;
+mod configurations;
 mod optimisation;
 mod systeme;
 mod fichiers;
@@ -327,6 +328,8 @@ pub struct FreeOpticalGuiApp {
     historique_nominal: Option<historique::Historique>,
     /// Exports (images des vues, fiche PDF, plans des lentilles, DXF)
     pub export: export::EtatExport,
+    /// Fenêtre des configurations multiples
+    pub configs: configurations::EtatConfigurations,
 }
 
 impl FreeOpticalGuiApp {
@@ -382,6 +385,7 @@ impl FreeOpticalGuiApp {
             historique: historique::Historique::default(),
             historique_nominal: None,
             export: export::EtatExport::default(),
+            configs: configurations::EtatConfigurations::default(),
         };
         app.historique.reinitialiser(&app.systeme);
         app.marquer_enregistre();
@@ -399,7 +403,15 @@ impl FreeOpticalGuiApp {
         }
     }
 
-    pub fn charger_systeme(&mut self, sys: OpticalSystem, msg: impl Into<String>) {
+    pub fn charger_systeme(&mut self, mut sys: OpticalSystem, msg: impl Into<String>) {
+        // Les surfaces doivent contenir la configuration active (fichier écrit à la main, MCP)
+        let mut msg = msg.into();
+        if !sys.configurations.operandes.is_empty() {
+            let erreurs = sys.appliquer_configuration(sys.configurations.active);
+            if !erreurs.is_empty() {
+                msg = format!("{msg} — {}", erreurs.join(" ; "));
+            }
+        }
         self.systeme = sys;
         self.chemin_courant = None;
         self.ligne_selectionnee = 0;
@@ -407,7 +419,7 @@ impl FreeOpticalGuiApp {
         self.pan_offset = Vec2::ZERO;
         self.recalculer();
         self.historique.reinitialiser(&self.systeme);
-        self.statut_message = msg.into();
+        self.statut_message = msg;
         self.marquer_enregistre();
     }
 
@@ -660,6 +672,7 @@ impl FreeOpticalGuiApp {
             return;
         }
         self.systeme.surfaces.remove(self.ligne_selectionnee);
+        self.systeme.surface_supprimee(self.ligne_selectionnee);
         self.recalculer();
         self.statut_message = tr!("Surface supprimée.", "Surface deleted.", "Fläche gelöscht.").to_string();
     }
@@ -882,6 +895,10 @@ impl eframe::App for FreeOpticalGuiApp {
             } else if retablir {
                 self.retablir();
             }
+            let suivante = ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::A)));
+            if suivante {
+                self.configuration_suivante();
+            }
         }
         if ouvrir {
             self.afficher_fichiers(fichiers::ModeFichiers::Ouvrir);
@@ -1034,6 +1051,17 @@ impl eframe::App for FreeOpticalGuiApp {
                                 self.vue_active = ActiveView::Spectre;
                                 ui.close();
                             }
+                            if ui.button(tr!("Lunette 100 mm : infini et objet à 5 m (2 configurations)", "100 mm refractor: infinity and object at 5 m (2 configurations)", "100-mm-Refraktor: unendlich und Objekt in 5 m (2 Konfigurationen)")).clicked() {
+                                self.charger_systeme(
+                                    crate::core::presets::creer_lunette_deux_mises_au_point(),
+                                    tr!(
+                                        "Lunette à deux configurations chargée : Ctrl+A ou la liste en haut pour changer, Édition > Configurations multiples pour les voir.",
+                                        "Two-configuration refractor loaded: Ctrl+A or the list at the top to switch, Edit > Multiple configurations to see them.",
+                                        "Refraktor mit zwei Konfigurationen geladen: Strg+A oder die Liste oben zum Wechseln, Bearbeiten > Mehrfachkonfigurationen zum Ansehen."
+                                    ),
+                                );
+                                ui.close();
+                            }
                         });
                         ui.separator();
                         if ui.button(tr!("Quitter", "Quit", "Beenden")).clicked() {
@@ -1064,6 +1092,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             s.commentaire = tr!("Nouvelle Surface", "New Surface", "Neue Fläche").to_string();
                             let idx = self.ligne_selectionnee.min(self.systeme.surfaces.len());
                             self.systeme.surfaces.insert(idx, s);
+                            self.systeme.surface_inseree(idx);
                             self.recalculer();
                             ui.close();
                         }
@@ -1076,6 +1105,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             s.commentaire = tr!("Dioptre Ajouté", "Added Surface", "Hinzugefügte Fläche").to_string();
                             let idx = self.systeme.surfaces.len().saturating_sub(1);
                             self.systeme.surfaces.insert(idx, s);
+                            self.systeme.surface_inseree(idx);
                             self.ligne_selectionnee = idx;
                             self.recalculer();
                             ui.close();
@@ -1101,6 +1131,17 @@ impl eframe::App for FreeOpticalGuiApp {
                             .clicked()
                         {
                             self.fenetre_systeme = true;
+                            ui.close();
+                        }
+                        if ui
+                            .button(tr!(
+                                "Configurations multiples (mises au point, objets, réglages)…   (Ctrl+A : suivante)",
+                                "Multiple configurations (focus, objects, settings)…   (Ctrl+A: next)",
+                                "Mehrfachkonfigurationen (Fokus, Objekte, Einstellungen)…   (Strg+A: nächste)"
+                            ))
+                            .clicked()
+                        {
+                            self.ouvrir_configurations();
                             ui.close();
                         }
                     });
@@ -1226,6 +1267,7 @@ impl eframe::App for FreeOpticalGuiApp {
                     );
 
                     ui.separator();
+                    self.selecteur_configuration(ui);
                     if ui
                         .add(
                             egui::Button::new(
@@ -1385,6 +1427,7 @@ impl eframe::App for FreeOpticalGuiApp {
             self.dessiner_fenetre_optimisation(&ctx);
             self.dessiner_fenetre_tolerancement(&ctx);
             self.dessiner_fenetre_systeme(&ctx);
+            self.dessiner_fenetre_configurations(&ctx);
             self.dessiner_fenetre_bath(&ctx);
         }
         self.suivre_export(&ctx);
@@ -1406,6 +1449,8 @@ impl eframe::App for FreeOpticalGuiApp {
         }
 
         // Annuler / Rétablir : une modification devient une étape quand le geste est fini
+        // Les modifications faites dans le LDE vont dans la colonne de la configuration active
+        self.systeme.capturer_configuration();
         let geste_en_cours = ctx.input(|i| i.pointer.any_down()) || ctx.text_edit_focused();
         self.historique.suivre(&self.systeme, geste_en_cours);
     }
@@ -1438,10 +1483,15 @@ fn cadre_dos(ui: &mut egui::Ui, titre: &str, contenu: impl FnOnce(&mut egui::Ui)
 impl FreeOpticalGuiApp {
     fn dessiner_lde_interactif(&mut self, ui: &mut egui::Ui) {
         let mut modifie = false;
-        let titre = trf!(
+        let mut titre = trf!(
             "ÉDITEUR DE DONNÉES DE LENTILLES (LDE) — {}", "LENS DATA EDITOR (LDE) — {}", "LINSENDATEN-EDITOR (LDE) — {}",
             self.systeme.nom
         );
+        let nb_configs = self.systeme.nb_configurations();
+        if nb_configs > 1 {
+            let k = self.systeme.configurations.active;
+            titre = format!("{titre} — CONFIG {}/{nb_configs} : {}", k + 1, self.systeme.configurations.nom(k));
+        }
 
         cadre_dos(ui, &titre, |ui| {
             ui.horizontal(|ui| {
@@ -1451,6 +1501,7 @@ impl FreeOpticalGuiApp {
                     s.commentaire = tr!("Nouvelle Surface", "New Surface", "Neue Fläche").to_string();
                     let idx = self.ligne_selectionnee.min(self.systeme.surfaces.len());
                     self.systeme.surfaces.insert(idx, s);
+                    self.systeme.surface_inseree(idx);
                     modifie = true;
                 }
                 if ui.button(tr!("- Supprimer Surface", "- Delete Surface", "- Fläche löschen")).clicked() {
@@ -2011,7 +2062,8 @@ impl FreeOpticalGuiApp {
             let sys = &self.systeme;
             let mut legende = vec![tr!("Cyan = Champ sur l'axe", "Cyan = On-axis field", "Cyan = Feld auf der Achse").to_string()];
             if sys.champs_deg.len() > 1 && sys.champs_deg[1].1.abs() > 0.01 {
-                legende.push(trf!("Vert = Champ {:.1}°", "Green = Field {:.1}°", "Grün = Feld {:.1}°", sys.champs_deg[1].1));
+                let unite = if sys.objet_fini().is_some() { " mm" } else { "°" };
+                legende.push(trf!("Vert = Champ {:.1}{}", "Green = Field {:.1}{}", "Grün = Feld {:.1}{}", sys.champs_deg[1].1, unite));
             }
             if sys.surfaces.iter().any(|surf| est_cube_separateur(sys, surf)) {
                 legende.push(tr!("Orange = Réfléchis 90° (Cube 50/50)", "Orange = Reflected 90° (50/50 cube)", "Orange = 90° reflektiert (50/50-Cube)").to_string());

@@ -447,6 +447,7 @@ pub fn importer_teloptik(octets: &[u8]) -> Result<ImportTeloptik, String> {
         distance_objet_mm: None,
         afocal: false,
         tolerances: Vec::new(),
+        configurations: Default::default(),
     };
 
     // Plan image au foyer paraxial

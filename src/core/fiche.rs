@@ -586,6 +586,139 @@ fn pages_surfaces(doc: &mut Document, sys: &OpticalSystem) {
     }
 }
 
+/// Configurations multiples : paramètres qui changent et comparaison des configurations
+fn page_configurations(doc: &mut Document, sys: &OpticalSystem) {
+    use crate::core::configurations::{TypeOperande, ValeurConfig, bilan_configurations};
+    let mut sys = sys.clone();
+    sys.capturer_configuration();
+    let nb_configs = sys.nb_configurations();
+    let active = sys.configurations.active;
+    let bilan = bilan_configurations(&sys);
+    let p = doc.nouvelle_page(A4);
+    let mut y = titre_section(p, 20.0, &trf!("CONFIGURATIONS ({})", "CONFIGURATIONS ({})", "KONFIGURATIONEN ({})", nb_configs));
+    p.texte(
+        MARGE + 1.5,
+        y,
+        &trf!(
+            "Les autres pages décrivent la configuration active : {} ({}). Les paramètres absents de ce tableau sont communs.",
+            "The other pages describe the active configuration: {} ({}). Parameters missing from this table are shared.",
+            "Die anderen Seiten beschreiben die aktive Konfiguration: {} ({}). Nicht aufgeführte Parameter sind gemeinsam.",
+            active + 1,
+            sys.configurations.nom(active)
+        ),
+        Police::Helvetica,
+        8.0,
+        Alignement::Gauche,
+        NOIR,
+    );
+    y += 7.0;
+    let valeur = |t: TypeOperande, v: &ValeurConfig| -> String {
+        let mut s = match (t, v.nombre()) {
+            (TypeOperande::Verre, _) | (_, None) => v.texte(),
+            (TypeOperande::ReseauOrdre, Some(n)) => format!("{}", n.round() as i64),
+            (_, Some(n)) => nb(n, 4),
+        };
+        s.truncate(12);
+        s
+    };
+    let ou = |t: TypeOperande, i: usize| -> String {
+        if t.porte_sur_surface() {
+            format!("S{}", i + 1)
+        } else if !t.a_un_index() {
+            String::new()
+        } else if matches!(t, TypeOperande::ChampX | TypeOperande::ChampY) {
+            trf!("champ {}", "field {}", "Feld {}", i + 1)
+        } else {
+            format!("λ {}", i + 1)
+        }
+    };
+    // Six configurations par bloc pour tenir dans la largeur
+    for debut in (0..nb_configs).step_by(6) {
+        let fin = (debut + 6).min(nb_configs);
+        let mut entete = format!("{:<18} {:<8}", tr!("Paramètre", "Parameter", "Parameter"), tr!("Où", "Where", "Wo"));
+        for k in debut..fin {
+            let mut n = format!("{}{} {}", if k == active { "*" } else { "" }, k + 1, sys.configurations.nom(k));
+            n = n.chars().take(14).collect();
+            entete.push_str(&format!(" {:>14}", n));
+        }
+        p.texte(MARGE + 1.0, y, &entete, Police::CourierGras, 7.2, Alignement::Gauche, NOIR);
+        y += 1.6;
+        p.ligne((MARGE, y), (A4.0 - MARGE, y), 0.2, GRIS);
+        y += 3.6;
+        for (j, op) in sys.configurations.operandes.iter().enumerate() {
+            if y > A4.1 - 60.0 {
+                break;
+            }
+            let mut nom: String = op.type_op.libelle().chars().take(17).collect();
+            if op.variable {
+                nom.push_str(" V");
+            }
+            let mut l = format!("{:<18} {:<8}", nom, ou(op.type_op, op.index));
+            for k in debut..fin {
+                l.push_str(&format!(" {:>14}", op.valeurs.get(k).map(|v| valeur(op.type_op, v)).unwrap_or_default()));
+            }
+            if j % 2 == 1 {
+                p.rectangle_plein(MARGE, y - 2.9, A4.0 - 2.0 * MARGE, 4.0, [0.96, 0.96, 0.96]);
+            }
+            p.texte(MARGE + 1.0, y, &l, Police::Courier, 7.2, Alignement::Gauche, NOIR);
+            y += 4.0;
+        }
+        y += 4.0;
+    }
+    p.texte(
+        MARGE + 1.0,
+        y,
+        tr!(
+            "* configuration active. V : réglé séparément dans chaque configuration par l'optimiseur.",
+            "* active configuration. V: set separately in each configuration by the optimizer.",
+            "* aktive Konfiguration. V: vom Optimierer in jeder Konfiguration getrennt eingestellt."
+        ),
+        Police::Helvetica,
+        7.0,
+        Alignement::Gauche,
+        GRIS,
+    );
+    y += 9.0;
+
+    y = titre_section(p, y, tr!("COMPARAISON DES CONFIGURATIONS", "COMPARISON OF THE CONFIGURATIONS", "VERGLEICH DER KONFIGURATIONEN"));
+    let entete = format!(
+        "{:<20} {:>10} {:>7} {:>10} {:>10} {:>8}  {}",
+        "Configuration",
+        "EFFL",
+        "F/#",
+        tr!("Tir. parax", "Parax. BFL", "Parax. SW"),
+        tr!("Longueur", "Length", "Länge"),
+        "Airy µm",
+        tr!("Spot RMS par champ (µm)", "RMS spot per field (µm)", "RMS-Spot je Feld (µm)")
+    );
+    p.texte(MARGE + 1.0, y, &entete, Police::CourierGras, 7.2, Alignement::Gauche, NOIR);
+    y += 1.6;
+    p.ligne((MARGE, y), (A4.0 - MARGE, y), 0.2, GRIS);
+    y += 3.6;
+    for (j, b) in bilan.iter().enumerate() {
+        if y > A4.1 - 18.0 {
+            break;
+        }
+        let nom: String = format!("{}{} {}", if b.numero == active { "*" } else { "" }, b.numero + 1, b.nom).chars().take(20).collect();
+        let spots = b.spot_rms_um.iter().map(|v| nb(*v, 2)).collect::<Vec<_>>().join(" / ");
+        let l = format!(
+            "{:<20} {:>10} {:>7} {:>10} {:>10} {:>8}  {}",
+            nom,
+            nb(b.focale_mm, 3),
+            nb(b.f_nombre, 2),
+            nb(b.tirage_mm, 3),
+            nb(b.longueur_totale_mm, 2),
+            nb(b.rayon_airy_um, 2),
+            spots
+        );
+        if j % 2 == 1 {
+            p.rectangle_plein(MARGE, y - 2.9, A4.0 - 2.0 * MARGE, 4.0, [0.96, 0.96, 0.96]);
+        }
+        p.texte(MARGE + 1.0, y, &l, Police::Courier, 7.2, Alignement::Gauche, NOIR);
+        y += 4.0;
+    }
+}
+
 /// Repères locaux d'un plan de fabrication : première face au sommet, axe horizontal
 fn reperes_plan(z1: f64, z2: f64) -> (Repere, Repere) {
     let r = |z: f64| Repere { origine: crate::core::types::Point3::new(0.0, 0.0, z), rotation: nalgebra::Rotation3::identity() };
@@ -935,6 +1068,9 @@ pub fn fiche_pdf(sys: &OpticalSystem) -> (Vec<u8>, Vec<String>) {
     let mut remarques = Vec::new();
     page_caracteristiques(&mut doc, sys, &mut remarques);
     pages_surfaces(&mut doc, sys);
+    if sys.nb_configurations() > 1 {
+        page_configurations(&mut doc, sys);
+    }
     let elements = dessin::elements(sys);
     for e in &elements {
         match e.nature {
@@ -961,6 +1097,17 @@ mod tests {
 
     fn texte(o: &[u8]) -> String {
         String::from_utf8_lossy(o).into_owned()
+    }
+
+    #[test]
+    fn fiche_avec_configurations() {
+        let sys = presets::creer_lunette_deux_mises_au_point();
+        let (o, _) = fiche_pdf(&sys);
+        let t = texte(&o);
+        // Caractéristiques + surfaces + configurations + 2 plans de lentilles
+        assert!(t.contains("/Count 5"), "nombre de pages");
+        assert!(t.contains("CONFIGURATIONS \\(2\\)") && t.contains("COMPARAISON DES CONFIGURATIONS"));
+        assert!(t.contains(&nb(95.5598, 4)), "tirage de la config 2");
     }
 
     #[test]
@@ -1045,6 +1192,7 @@ fn fiches_des_exemples() {
         ("singlet", presets::creer_singlet_aspherique()),
         ("spectro", presets::creer_spectrographe_reseau()),
         ("bath", presets::creer_interferometre_bath()),
+        ("lunette_2_configs", presets::creer_lunette_deux_mises_au_point()),
     ] {
         let (o, r) = fiche_pdf(&s);
         std::fs::write(dossier.join(format!("{nom}.pdf")), o).unwrap();

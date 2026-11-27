@@ -292,6 +292,7 @@ mod tests_conjugues {
             distance_objet_mm: None,
             afocal: false,
             tolerances: Vec::new(),
+            configurations: Default::default(),
         }
     }
 
