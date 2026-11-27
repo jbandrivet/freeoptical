@@ -13,6 +13,8 @@ pub enum TypeExport {
     Fiche,
     /// Coupe méridienne pour la CAO
     Dxf,
+    /// Fichier de lentilles Zemax OpticStudio séquentiel
+    Zemax,
 }
 
 impl TypeExport {
@@ -21,6 +23,7 @@ impl TypeExport {
             TypeExport::Image => "png",
             TypeExport::Fiche => "pdf",
             TypeExport::Dxf => "dxf",
+            TypeExport::Zemax => "zmx",
         }
     }
 
@@ -29,6 +32,7 @@ impl TypeExport {
             TypeExport::Image => tr!(" Exporter la vue en image PNG ", " Export the view as a PNG image ", " Ansicht als PNG-Bild exportieren "),
             TypeExport::Fiche => tr!(" Exporter la fiche et les plans en PDF ", " Export the sheet and drawings as PDF ", " Datenblatt und Zeichnungen als PDF exportieren "),
             TypeExport::Dxf => tr!(" Exporter la coupe en DXF (CAO) ", " Export the section as DXF (CAD) ", " Schnitt als DXF exportieren (CAD) "),
+            TypeExport::Zemax => tr!(" Exporter pour Zemax OpticStudio (.zmx) ", " Export for Zemax OpticStudio (.zmx) ", " Für Zemax OpticStudio exportieren (.zmx) "),
         }
     }
 }
@@ -90,6 +94,7 @@ impl FreeOpticalGuiApp {
             TypeExport::Image => format!("{base}_{}.png", nom_fichier(self.vue_active.libelle_court())),
             TypeExport::Fiche => format!("{base}_{}.pdf", tr!("fiche", "sheet", "Datenblatt")),
             TypeExport::Dxf => format!("{base}.dxf"),
+            TypeExport::Zemax => format!("{base}.zmx"),
         }
     }
 
@@ -113,6 +118,10 @@ impl FreeOpticalGuiApp {
             TypeExport::Dxf => {
                 let d = crate::core::dxf::exporter_dxf(&self.systeme);
                 std::fs::write(chemin, d.texte).map(|_| d.remarques).map_err(|e| e.to_string())
+            }
+            TypeExport::Zemax => {
+                let e = crate::core::zemax::exporter_zemax(&self.systeme);
+                std::fs::write(chemin, e.octets()).map(|_| e.avertissements).map_err(|e| e.to_string())
             }
         };
         match resultat {
@@ -177,6 +186,10 @@ mod tests {
         let dxf = dossier.join("coupe.dxf");
         assert!(app.exporter(TypeExport::Dxf, &dxf));
         assert!(std::fs::read_to_string(&dxf).unwrap().ends_with("EOF\n"));
+        let zmx = dossier.join("systeme.zmx");
+        assert_eq!(app.nom_export(TypeExport::Zemax).rsplit('.').next(), Some("zmx"));
+        assert!(app.exporter(TypeExport::Zemax, &zmx));
+        assert!(app.ouvrir_fichier(&zmx), "le .zmx exporté se rouvre");
         // Dossier inexistant : échec signalé
         assert!(!app.exporter(TypeExport::Dxf, &dossier.join("absent").join("x.dxf")));
         assert!(app.bilan_import.as_ref().is_some_and(|b| !b.0));

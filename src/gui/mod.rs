@@ -985,6 +985,7 @@ impl eframe::App for FreeOpticalGuiApp {
                             let choix = [
                                 (export::TypeExport::Fiche, tr!("Fiche du système et plans des pièces (PDF)…", "System sheet and part drawings (PDF)…", "Systemdatenblatt und Teilezeichnungen (PDF)…")),
                                 (export::TypeExport::Dxf, tr!("Coupe des lentilles et miroirs pour la CAO (DXF)…", "Section of lenses and mirrors for CAD (DXF)…", "Schnitt der Linsen und Spiegel für CAD (DXF)…")),
+                                (export::TypeExport::Zemax, tr!("Système pour Zemax OpticStudio (.zmx)…", "System for Zemax OpticStudio (.zmx)…", "System für Zemax OpticStudio (.zmx)…")),
                                 (export::TypeExport::Image, tr!("Vue affichée en image (PNG)…", "Displayed view as an image (PNG)…", "Angezeigte Ansicht als Bild (PNG)…")),
                             ];
                             for (t, libelle) in choix {

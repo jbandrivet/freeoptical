@@ -1,4 +1,4 @@
-//! Import des fichiers de lentilles Zemax OpticStudio séquentiels (`.zmx`).
+//! Import et export des fichiers de lentilles Zemax OpticStudio séquentiels (`.zmx`).
 //!
 //! Format texte, en UTF-16 (avec ou sans BOM) dans les versions récentes, en ASCII/UTF-8 dans
 //! les anciennes. Une ligne = un mot-clé de quatre lettres suivi de ses valeurs. Mots-clés repris :
@@ -475,6 +475,342 @@ pub fn importer_zemax(octets: &[u8]) -> Result<ImportZemax, String> {
     Ok(ImportZemax { systeme: sys, avertissements })
 }
 
+/// Résultat d'un export : texte du fichier `.zmx` et éléments approchés ou non exportés
+#[derive(Debug, Clone)]
+pub struct ExportZemax {
+    pub texte: String,
+    pub avertissements: Vec<String>,
+}
+
+impl ExportZemax {
+    /// Octets du fichier, en UTF-16 petit boutiste avec BOM, comme l'écrit OpticStudio
+    pub fn octets(&self) -> Vec<u8> {
+        let mut o = vec![0xFF, 0xFE];
+        for u in self.texte.encode_utf16() {
+            o.extend(u.to_le_bytes());
+        }
+        o
+    }
+}
+
+/// Nombre écrit pour Zemax : représentation exacte la plus courte, notation scientifique
+fn zn(v: f64) -> String {
+    if v == 0.0 {
+        "0".into()
+    } else if !v.is_finite() {
+        "INFINITY".into()
+    } else {
+        // 15 chiffres significatifs, zéros inutiles retirés (le bruit des divisions disparaît)
+        let s = format!("{v:.14E}");
+        let (mantisse, exposant) = s.split_once('E').unwrap_or((&s, "0"));
+        let mantisse = if mantisse.contains('.') { mantisse.trim_end_matches('0').trim_end_matches('.') } else { mantisse };
+        format!("{mantisse}E{exposant}")
+    }
+}
+
+/// Texte sur une ligne, sans guillemets (noms, commentaires)
+fn texte_ligne(s: &str) -> String {
+    s.chars().map(|c| if c.is_control() || c == '"' { ' ' } else { c }).collect::<String>().trim().to_string()
+}
+
+/// Nom Zemax d'un verre intégré de FreeOptical (catalogue Schott ou MISC)
+fn verre_integre_zemax(nom: &str, origine: &str) -> Option<(String, &'static str)> {
+    let n = nom.to_uppercase();
+    match origine {
+        "Schott" => {
+            let canon = match n.as_str() {
+                "BK7" => "N-BK7",
+                "K5" => "N-K5",
+                "N-F2" => "F2",
+                "SF11" => "N-SF11",
+                "LAK9" => "N-LAK9",
+                "SK16" => "N-SK16",
+                "BAF10" => "N-BAF10",
+                "FK51A" => "N-FK51A",
+                "PK52A" => "N-PK52A",
+                "SF5" => "N-SF5",
+                "SF6" => "N-SF6",
+                autre => return Some((autre.to_string(), "SCHOTT")),
+            };
+            Some((canon.to_string(), "SCHOTT"))
+        }
+        "Malitson" => Some((if n.contains("SIL") { "F_SILICA" } else { "CAF2" }.to_string(), "MISC")),
+        _ => None,
+    }
+}
+
+/// Ligne `GLAS` d'un matériau, catalogue à déclarer dans `GCAT`
+fn ligne_verre(sys: &OpticalSystem, spec: &str, avertissements: &mut Vec<String>) -> (String, Option<String>) {
+    let m = sys.catalogue.resoudre(spec);
+    if m.est_miroir() {
+        return ("GLAS MIRROR 0 0 1.5 4.0E+1 0 0 0 0 0 0".into(), None);
+    }
+    let nd = m.indice_refraction(crate::core::glass::LAMBDA_D_NM);
+    let vd = m.abbe();
+    if (nd - 1.0).abs() < 1e-12 {
+        return (String::new(), None);
+    }
+    let modele = |avert: Option<String>, avertissements: &mut Vec<String>| {
+        if let Some(a) = avert {
+            avertissements.push(a);
+        }
+        (format!("GLAS ___BLANK 1 0 {} {} 0 0 0 0 0 0", zn(nd), zn(vd)), None)
+    };
+    if !sys.catalogue.est_connu(spec) {
+        return modele(Some(trf!("verre inconnu {} : exporté comme air", "unknown glass {}: exported as air", "unbekanntes Glas {}: als Luft exportiert", spec)), avertissements);
+    }
+    if let Some((nom, cat)) = verre_integre_zemax(&m.nom, &m.catalogue) {
+        return (format!("GLAS {} 0 0 {} {} 0 0 0 0 0 0", nom, zn(nd), zn(vd)), Some(cat.to_string()));
+    }
+    if !m.catalogue.is_empty() {
+        // Verre d'un catalogue .agf importé : même nom, catalogue du même nom que le fichier
+        let cat = texte_ligne(&m.catalogue).replace(' ', "_").to_uppercase();
+        return (format!("GLAS {} 0 0 {} {} 0 0 0 0 0 0", texte_ligne(&m.nom).replace(' ', "_"), zn(nd), zn(vd)), Some(cat));
+    }
+    let avert = (!spec.contains(':') && spec.parse::<f64>().is_err()).then(|| {
+        trf!(
+            "verre {} sans catalogue Zemax : exporté comme verre modèle (nd = {:.5}, Vd = {:.2})",
+            "glass {} without a Zemax catalogue: exported as a model glass (nd = {:.5}, Vd = {:.2})",
+            "Glas {} ohne Zemax-Katalog: als Modellglas exportiert (nd = {:.5}, Vd = {:.2})",
+            spec,
+            nd,
+            vd
+        )
+    });
+    modele(avert, avertissements)
+}
+
+/// Angles (degrés) d'une rupture Zemax d'ordre 0, Rx(tx)·Ry(ty)·Rz(tz), égale à la rotation `r`
+fn angles_coupure(r: &nalgebra::Rotation3<f64>) -> [f64; 3] {
+    // euler_angles() donne R = Rz(yaw)·Ry(pitch)·Rx(roll) ; appliqué à Rᵀ = Rz(−tz)·Ry(−ty)·Rx(−tx)
+    let (roll, pitch, yaw) = r.transpose().euler_angles();
+    let net = |a: f64| {
+        let d = -a.to_degrees();
+        if d.abs() < 1e-12 { 0.0 } else { d }
+    };
+    [net(roll), net(pitch), net(yaw)]
+}
+
+/// Écrit le système au format Zemax OpticStudio séquentiel (`.zmx`). Les surfaces décentrées ou
+/// inclinées sont encadrées de deux ruptures de repère (la seconde défait la première, comme
+/// l'outil « Tilt/Decenter Elements » de Zemax) ; les demi-diamètres deviennent des ouvertures
+/// circulaires (FreeOptical arrête les rayons au bord de chaque surface) ; les solves sont figés.
+pub fn exporter_zemax(systeme: &OpticalSystem) -> ExportZemax {
+    let mut sys = systeme.clone();
+    sys.capturer_configuration();
+    crate::core::solves::appliquer_solves(&mut sys);
+    let mut avertissements = Vec::new();
+    let mut catalogues: Vec<String> = Vec::new();
+    let mut lignes: Vec<String> = Vec::new();
+    let nb = sys.surfaces.len();
+
+    // Longueurs d'onde : la principale doit faire partie de la liste
+    let mut longueurs: Vec<(f64, f64)> = sys.longueurs_onde.iter().map(|w| (w.valeur_nm, w.poids.max(0.0))).collect();
+    if longueurs.is_empty() {
+        longueurs.push((sys.longueur_onde_ref_nm, 1.0));
+    }
+    let pwav = match longueurs.iter().position(|w| (w.0 - sys.longueur_onde_ref_nm).abs() < 1e-6) {
+        Some(i) => i + 1,
+        None => {
+            longueurs.push((sys.longueur_onde_ref_nm, 0.0));
+            avertissements.push(trf!(
+                "longueur d'onde de référence {} nm ajoutée à la liste avec un poids nul",
+                "reference wavelength {} nm added to the list with zero weight",
+                "Referenzwellenlänge {} nm mit Gewicht null zur Liste hinzugefügt",
+                sys.longueur_onde_ref_nm
+            ));
+            longueurs.len()
+        }
+    };
+    let champs = if sys.champs_deg.is_empty() { vec![(0.0, 0.0)] } else { sys.champs_deg.clone() };
+    let objet_fini = sys.objet_fini();
+
+    lignes.push("VERS 190513 80 123457 L123457".into());
+    lignes.push("MODE SEQ".into());
+    lignes.push(format!("NAME {}", texte_ligne(&sys.nom)));
+    lignes.push(format!("NOTE 0 FreeOptical {}", env!("CARGO_PKG_VERSION")));
+    lignes.push("UNIT MM X W X CM MR CPMM".into());
+    match sys.ouverture {
+        ApertureSpec::PupilleEntreeMm(v) => lignes.push(format!("ENPD {}", zn(v))),
+        ApertureSpec::NombreOuverture(v) => lignes.push(format!("FNUM {} 0", zn(v))),
+        ApertureSpec::OuvertureNumeriqueObjet(v) => lignes.push(format!("OBNA {} 0", zn(v))),
+    }
+    lignes.push("ENVD 2.0E+1 1 0".into());
+    lignes.push("GFAC 0 0".into());
+    let pos_gcat = lignes.len();
+    lignes.push(format!("FTYP {} 0 {} {} 0 0 0", if objet_fini.is_some() { 1 } else { 0 }, champs.len(), longueurs.len()));
+    let liste = |v: Vec<f64>| v.into_iter().map(zn).collect::<Vec<_>>().join(" ");
+    let complete = |mut v: Vec<f64>, n: usize| {
+        v.resize(v.len().max(n), 0.0);
+        v
+    };
+    lignes.push(format!("XFLN {}", liste(complete(champs.iter().map(|c| c.0).collect(), 12))));
+    lignes.push(format!("YFLN {}", liste(complete(champs.iter().map(|c| c.1).collect(), 12))));
+    lignes.push(format!("FWGN {}", liste(vec![1.0; champs.len().max(12)])));
+    for (i, (l, w)) in longueurs.iter().enumerate() {
+        lignes.push(format!("WAVM {} {} {}", i + 1, zn(l / 1000.0), zn(*w)));
+    }
+    lignes.push(format!("PWAV {pwav}"));
+    if sys.afocal {
+        avertissements.push(tr!(
+            "espace image afocal : à cocher dans Zemax (System Explorer > Aperture > Afocal Image Space)",
+            "afocal image space: tick it in Zemax (System Explorer > Aperture > Afocal Image Space)",
+            "afokaler Bildraum: in Zemax ankreuzen (System Explorer > Aperture > Afocal Image Space)"
+        )
+        .to_string());
+    }
+
+    // Surfaces Zemax : (lignes de la surface)
+    let mut surfaces: Vec<Vec<String>> = Vec::new();
+    surfaces.push(vec![
+        "TYPE STANDARD".into(),
+        "CURV 0 0 0 0 0 \"\"".into(),
+        format!("DISZ {}", objet_fini.map(zn).unwrap_or_else(|| "INFINITY".into())),
+    ]);
+    let coupure = |d: [f64; 2], a: [f64; 3], ordre: u8, epaisseur: f64, commentaire: &str| {
+        let mut l = vec!["TYPE COORDBRK".into()];
+        if !commentaire.is_empty() {
+            l.push(format!("COMM {commentaire}"));
+        }
+        l.push("CURV 0 0 0 0 0 \"\"".into());
+        l.push(format!("PARM 1 {}", zn(d[0])));
+        l.push(format!("PARM 2 {}", zn(d[1])));
+        l.push(format!("PARM 3 {}", zn(a[0])));
+        l.push(format!("PARM 4 {}", zn(a[1])));
+        l.push(format!("PARM 5 {}", zn(a[2])));
+        l.push(format!("PARM 6 {ordre}"));
+        l.push(format!("DISZ {}", zn(epaisseur)));
+        l
+    };
+    let mut solves = Vec::new();
+    for (k, s) in sys.surfaces.iter().enumerate() {
+        let est_image = k + 1 == nb;
+        if s.solve_rayon.is_some() || s.solve_epaisseur.is_some() || s.solve_conique.is_some() {
+            solves.push(format!("S{}", k + 1));
+        }
+        if s.est_coupure() {
+            let a = [s.inclinaison_deg[0], s.inclinaison_deg[1], s.inclinaison_z_deg];
+            surfaces.push(coupure(s.decentrement, a, s.inclinaison_avant_decentrement as u8, if est_image { 0.0 } else { s.epaisseur }, &texte_ligne(&s.commentaire)));
+            continue;
+        }
+        // Décentrement ou inclinaison propre : rupture avant, surface d'épaisseur nulle, rupture inverse
+        let hors_axe = s.est_hors_axe();
+        let angles = angles_coupure(&s.rotation());
+        if hors_axe {
+            surfaces.push(coupure(s.decentrement, angles, 0, 0.0, &trf!("inclinaison S{}", "tilt S{}", "Kippung S{}", k + 1)));
+        }
+        let mut l = Vec::new();
+        if s.est_diaphragme && !est_image {
+            l.push("STOP".into());
+        }
+        if !s.commentaire.trim().is_empty() {
+            l.push(format!("COMM {}", texte_ligne(&s.commentaire)));
+        }
+        let courbure = if matches!(s.type_surface, SurfaceType::Plane | SurfaceType::Ideale) { 0.0 } else { s.courbure() };
+        let reseau = s.reseau_traits_mm != 0.0;
+        match s.type_surface {
+            SurfaceType::Aspherique => {
+                l.push("TYPE EVENASPH".into());
+                if reseau {
+                    avertissements.push(trf!(
+                        "S{} : réseau sur une asphère non exporté (Zemax n'a pas de surface asphère + réseau simple)",
+                        "S{}: grating on an asphere not exported (Zemax has no simple asphere + grating surface)",
+                        "F{}: Gitter auf einer Asphäre nicht exportiert (Zemax hat keine einfache Asphäre-mit-Gitter-Fläche)",
+                        k + 1
+                    ));
+                }
+            }
+            SurfaceType::Ideale => l.push("TYPE PARAXIAL".into()),
+            _ if reseau => l.push("TYPE DGRATING".into()),
+            _ => l.push("TYPE STANDARD".into()),
+        }
+        l.push(format!("CURV {} 0 0 0 0 \"\"", zn(courbure)));
+        match s.type_surface {
+            SurfaceType::Aspherique => {
+                l.push("PARM 1 0".into());
+                for (n, a) in s.aspheriques.iter().enumerate() {
+                    l.push(format!("PARM {} {}", n + 2, zn(*a)));
+                }
+            }
+            SurfaceType::Ideale => {
+                l.push(format!("PARM 1 {}", zn(s.focale_ideale_mm)));
+                l.push("PARM 2 1".into());
+            }
+            _ if reseau => {
+                l.push(format!("PARM 1 {}", zn(s.reseau_traits_mm / 1000.0)));
+                l.push(format!("PARM 2 {}", s.reseau_ordre));
+            }
+            _ => {}
+        }
+        if reseau && s.reseau_blaze_deg != 0.0 {
+            avertissements.push(trf!(
+                "S{} : angle de blaze non exporté (le réseau DGRATING de Zemax n'en a pas)",
+                "S{}: blaze angle not exported (the Zemax DGRATING has none)",
+                "F{}: Blazewinkel nicht exportiert (das Zemax-DGRATING hat keinen)",
+                k + 1
+            ));
+        }
+        let epaisseur = if est_image || hors_axe { 0.0 } else { s.epaisseur };
+        l.push(format!("DISZ {}", zn(epaisseur)));
+        if !est_image {
+            let (glas, cat) = ligne_verre(&sys, &s.verre, &mut avertissements);
+            if !glas.is_empty() {
+                l.push(glas);
+            }
+            if let Some(c) = cat {
+                if !catalogues.contains(&c) {
+                    catalogues.push(c);
+                }
+            }
+        }
+        l.push(format!("DIAM {} 1 0 0 1 \"\"", zn(s.semi_diametre)));
+        if matches!(s.type_surface, SurfaceType::Conique | SurfaceType::Aspherique) || (reseau && s.conique != 0.0) {
+            l.push(format!("CONI {}", zn(s.conique)));
+        }
+        if !est_image {
+            // FreeOptical arrête les rayons hors du demi-diamètre et dans l'obstruction centrale
+            l.push(format!("CLAP {} {} 0", zn(s.rayon_obstruction), zn(s.semi_diametre)));
+        }
+        surfaces.push(l);
+        if hors_axe && !est_image {
+            // Rupture inverse (ordre 1) : défait l'inclinaison puis le décentrement
+            let inv = [-angles[0], -angles[1], -angles[2]];
+            surfaces.push(coupure([-s.decentrement[0], -s.decentrement[1]], inv, 1, s.epaisseur, &trf!("retour S{}", "return S{}", "Rückkehr F{}", k + 1)));
+        }
+    }
+    if !solves.is_empty() {
+        avertissements.push(trf!(
+            "solves et reprises exportés comme valeurs fixes ({})",
+            "solves and pickups exported as fixed values ({})",
+            "Solves und Übernahmen als feste Werte exportiert ({})",
+            solves.join(", ")
+        ));
+    }
+    if sys.nb_configurations() > 1 {
+        avertissements.push(trf!(
+            "{} configurations : seule la configuration active ({}) est exportée",
+            "{} configurations: only the active one ({}) is exported",
+            "{} Konfigurationen: nur die aktive ({}) wird exportiert",
+            sys.nb_configurations(),
+            sys.configurations.nom(sys.configurations.active)
+        ));
+    }
+    if !sys.tolerances.is_empty() {
+        avertissements.push(tr!("tolérances non exportées", "tolerances not exported", "Toleranzen nicht exportiert").to_string());
+    }
+    if catalogues.is_empty() {
+        catalogues.push("SCHOTT".into());
+    }
+    lignes.insert(pos_gcat, format!("GCAT {}", catalogues.join(" ")));
+    for (n, l) in surfaces.into_iter().enumerate() {
+        lignes.push(format!("SURF {n}"));
+        lignes.extend(l.into_iter().map(|x| format!("  {x}")));
+    }
+    let mut texte = lignes.join("\r\n");
+    texte.push_str("\r\n");
+    ExportZemax { texte, avertissements }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,5 +902,129 @@ SURF 2\n TYPE PARAXIAL\n PARM 1 50\n DISZ 40\n DIAM 8\nSURF 3\n TYPE TOROIDAL\n 
         assert!((spot.centroide_mm.1.abs() - 10.0).abs() < 1e-6);
         // Fichier non séquentiel : refusé
         assert!(importer_zemax(b"MODE NSC\n").is_err());
+    }
+
+    /// Export puis réimport : mêmes données paraxiales et mêmes taches (position et taille) pour
+    /// chaque champ, en lumière polychromatique
+    fn aller_retour(sys: &OpticalSystem) -> (ExportZemax, OpticalSystem) {
+        let e = exporter_zemax(sys);
+        let r = importer_zemax(&e.octets()).unwrap_or_else(|err| panic!("{} : {err}\n{}", sys.nom, e.texte));
+        let (a, b) = (calculer_paraxial(sys), calculer_paraxial(&r.systeme));
+        assert!((a.focale_effl_mm - b.focale_effl_mm).abs() < 1e-6 * a.focale_effl_mm.abs().max(1.0), "{} : EFFL {} / {}", sys.nom, a.focale_effl_mm, b.focale_effl_mm);
+        assert!(
+            (a.tirage_bfl_mm - b.tirage_bfl_mm).abs() < 1e-6 * a.tirage_bfl_mm.abs().max(1.0) || !a.tirage_bfl_mm.is_finite(),
+            "{} : BFL {} / {}",
+            sys.nom,
+            a.tirage_bfl_mm,
+            b.tirage_bfl_mm
+        );
+        let proche = |x: f64, y: f64| (x - y).abs() <= 1e-13 * x.abs().max(1.0);
+        assert_eq!(sys.champs_deg.len(), r.systeme.champs_deg.len(), "{}", sys.nom);
+        for (c, d) in sys.champs_deg.iter().zip(&r.systeme.champs_deg) {
+            assert!(proche(c.0, d.0) && proche(c.1, d.1), "{} : champ {c:?} / {d:?}", sys.nom);
+        }
+        let valeur = |o: &ApertureSpec| match *o {
+            ApertureSpec::PupilleEntreeMm(v) => (0, v),
+            ApertureSpec::NombreOuverture(v) => (1, v),
+            ApertureSpec::OuvertureNumeriqueObjet(v) => (2, v),
+        };
+        let (oa, ob) = (valeur(&sys.ouverture), valeur(&r.systeme.ouverture));
+        assert!(oa.0 == ob.0 && proche(oa.1, ob.1), "{} : {:?} / {:?}", sys.nom, sys.ouverture, r.systeme.ouverture);
+        assert_eq!(sys.distance_objet_mm, r.systeme.distance_objet_mm, "{}", sys.nom);
+        for &c in &sys.champs_deg {
+            let (sa, sb) = (calculer_spot_diagram(sys, c, 6), calculer_spot_diagram(&r.systeme, c, 6));
+            assert_eq!(sa.nb_rayons_valides, sb.nb_rayons_valides, "{} champ {c:?}", sys.nom);
+            assert!((sa.rayon_rms_um - sb.rayon_rms_um).abs() < 1e-3, "{} champ {c:?} : RMS {} / {}", sys.nom, sa.rayon_rms_um, sb.rayon_rms_um);
+            let d = ((sa.centroide_mm.0 - sb.centroide_mm.0).powi(2) + (sa.centroide_mm.1 - sb.centroide_mm.1).powi(2)).sqrt();
+            assert!(d < 1e-6, "{} champ {c:?} : centroïdes écartés de {d} mm", sys.nom);
+        }
+        (e, r.systeme)
+    }
+
+    #[test]
+    fn export_des_exemples_relu_a_l_identique() {
+        use crate::core::presets;
+        for sys in [
+            OpticalSystem::doublet_achromatique_defaut(),
+            presets::creer_singlet_aspherique(),
+            presets::creer_telescope_cassegrain(),
+            presets::creer_spectrographe_reseau(),
+            presets::creer_interferometre_bath(),
+        ] {
+            let (e, r) = aller_retour(&sys);
+            assert!(e.texte.starts_with("VERS ") && e.texte.contains("\r\nSURF 0\r\n"));
+            assert_eq!(r.surfaces.len(), sys.surfaces.len(), "{}", sys.nom);
+            for (a, b) in sys.surfaces.iter().zip(&r.surfaces) {
+                assert_eq!(a.est_diaphragme, b.est_diaphragme);
+                assert_eq!(a.reseau_ordre, b.reseau_ordre);
+            }
+        }
+        // Verres : noms du catalogue Schott, BK7 → N-BK7
+        let e = exporter_zemax(&OpticalSystem::doublet_achromatique_defaut());
+        assert!(e.texte.contains("GLAS N-BK7 0 0") && e.texte.contains("GLAS F2 0 0") && e.texte.contains("GCAT SCHOTT"), "{}", e.texte);
+        assert!(e.avertissements.is_empty(), "{:?}", e.avertissements);
+        // Configuration active d'un système à plusieurs configurations
+        let mut lunette = presets::creer_lunette_deux_mises_au_point();
+        lunette.changer_configuration(1);
+        let (e, r) = aller_retour(&lunette);
+        assert_eq!(r.distance_objet_mm, Some(5000.0));
+        assert!(e.avertissements.iter().any(|a| a.contains("configuration")));
+    }
+
+    #[test]
+    fn surface_inclinee_sur_deux_axes_et_verre_modele() {
+        // Seconde lentille décentrée et inclinée autour de X et de Y : deux ruptures autour de
+        // chacune de ses faces ; verre modèle nd:Vd
+        let mut sys = OpticalSystem::doublet_achromatique_defaut();
+        sys.surfaces[1].verre = "1.62:36.4".into();
+        sys.surfaces[1].decentrement = [0.2, -0.1];
+        sys.surfaces[1].inclinaison_deg = [1.0, 0.5];
+        sys.surfaces[2].decentrement = [0.2, -0.1];
+        sys.surfaces[2].inclinaison_deg = [1.0, 0.5];
+        sys.champs_deg = vec![(0.0, 0.0), (0.0, 2.5), (1.5, -1.0)];
+        let (e, r) = aller_retour(&sys);
+        assert_eq!(r.surfaces.len(), 8, "{}", e.texte);
+        assert!(e.texte.contains("GLAS ___BLANK 1 0 1.62E0 3.64E1"), "{}", e.texte);
+        // Rotation retrouvée par les angles de la rupture (ordre X, Y, Z)
+        let a = angles_coupure(&sys.surfaces[1].rotation());
+        let mut cb = Surface::nouvelle(SurfaceType::CoupureRepere, f64::INFINITY, 0.0, "AIR", 1.0);
+        cb.inclinaison_deg = [a[0], a[1]];
+        cb.inclinaison_z_deg = a[2];
+        assert!((cb.rotation_coupure().matrix() - sys.surfaces[1].rotation().matrix()).norm() < 1e-12);
+        assert!(a[2].abs() > 1e-4, "les deux inclinaisons ne commutent pas : rotation Z non nulle");
+    }
+
+    #[test]
+    fn ruptures_obstruction_et_reference_absente() {
+        // Newton replié (ruptures de repère, obstruction) dont la référence n'est pas dans la liste
+        let newton = "MODE SEQ\nNAME Newton\nUNIT MM\nENPD 200\nFTYP 0 0 2 1 0 0 0\nXFLN 0 0\nYFLN 0 0.3\nWAVL 0.5875618\nWWGT 1\n\
+SURF 0\n DISZ INFINITY\nSURF 1\n STOP\n CURV -5.0E-4\n CONI -1\n DISZ -800\n GLAS MIRROR 0 0 0 0\n DIAM 100 1\n OBSC 0 30\n\
+SURF 2\n TYPE COORDBRK\n DISZ 0\n PARM 3 45\nSURF 3\n DISZ 0\n GLAS MIRROR 0 0 0 0\n DIAM 40 0\nSURF 4\n TYPE COORDBRK\n DISZ 200\n PARM 3 45\nSURF 5\n DIAM 10\n";
+        let mut sys = importer_zemax(newton.as_bytes()).unwrap().systeme;
+        sys.longueur_onde_ref_nm = 550.0;
+        let e = exporter_zemax(&sys);
+        assert!(e.avertissements.iter().any(|a| a.contains("550")), "{:?}", e.avertissements);
+        assert!(e.texte.contains("CLAP 3E1 1E2 0"), "{}", e.texte);
+        let r = importer_zemax(&e.octets()).unwrap().systeme;
+        assert_eq!(r.longueur_onde_ref_nm, 550.0);
+        assert_eq!(r.surfaces[0].rayon_obstruction, 30.0);
+        let (a, b) = (calculer_spot_diagram(&sys, (0.0, 0.3), 6), calculer_spot_diagram(&r, (0.0, 0.3), 6));
+        // Une longueur d'onde de plus (la référence), sans effet sur un système à miroirs
+        assert_eq!(2 * a.nb_rayons_valides, b.nb_rayons_valides);
+        assert!((a.rayon_rms_um - b.rayon_rms_um).abs() < 1e-6);
+        assert!((a.centroide_mm.0 - b.centroide_mm.0).abs() < 1e-9 && (a.centroide_mm.1 - b.centroide_mm.1).abs() < 1e-9);
+    }
+
+    /// Aller-retour sur des fichiers JSON de FreeOptical :
+    /// FREEOPTICAL_ZMX=fichier1.json:fichier2.json cargo test -- --ignored aller_retour_fichiers
+    #[test]
+    #[ignore]
+    fn aller_retour_fichiers() {
+        let liste = std::env::var("FREEOPTICAL_ZMX").expect("FREEOPTICAL_ZMX");
+        for chemin in liste.split(':') {
+            let (sys, _) = crate::core::ouvrir_fichier_systeme(std::path::Path::new(chemin)).unwrap();
+            let (e, _) = aller_retour(&sys);
+            println!("{chemin} : {} surfaces Zemax, remarques {:?}", e.texte.matches("\nSURF ").count(), e.avertissements);
+        }
     }
 }

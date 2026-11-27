@@ -129,7 +129,7 @@ pub struct ImporterTeloptikParams {
 }
 
 /// Paramètres des outils MCP `ouvrir_systeme(chemin)`, `enregistrer_systeme(chemin)`,
-/// `exporter_fiche_pdf(chemin)` et `exporter_dxf(chemin)`
+/// `exporter_fiche_pdf(chemin)`, `exporter_dxf(chemin)` et `exporter_zemax(chemin)`
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct CheminSystemeParams {
     /// Chemin absolu du fichier : `.json` (FreeOptical) ; à l'ouverture aussi `.zmx` (Zemax) ou
@@ -405,7 +405,12 @@ impl FreeOpticalMcpServer {
 }
 
 /// Descriptions des outils en anglais et en allemand (le français est celui des attributs `#[tool]`)
-const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 29] = [
+const DESCRIPTIONS_OUTILS: [(&str, &str, &str); 30] = [
+    (
+        "exporter_zemax",
+        "Writes the current system as a sequential Zemax OpticStudio lens file (.zmx, UTF-16): pupil, fields, wavelengths, standard, even-asphere, paraxial, grating and coordinate-break surfaces, glasses (Schott/MISC catalogue names, imported .agf catalogues, otherwise nd/Vd model glasses), mirrors, apertures and obstructions. Decentered or tilted surfaces are wrapped in two coordinate breaks; solves are frozen; only the active configuration is written. Returns the remarks.",
+        "Schreibt das aktuelle System als sequentielle Zemax-OpticStudio-Linsendatei (.zmx, UTF-16): Pupille, Felder, Wellenlängen, Standard-, gerade asphärische, paraxiale, Gitter- und Koordinatenbruchflächen, Gläser (Katalognamen Schott/MISC, importierte .agf-Kataloge, sonst nd/Vd-Modellgläser), Spiegel, Aperturen und Abschattungen. Dezentrierte oder gekippte Flächen werden von zwei Koordinatenbrüchen eingerahmt; Solves werden eingefroren; nur die aktive Konfiguration wird geschrieben. Gibt die Hinweise zurück.",
+    ),
     (
         "definir_configurations",
         "Sets the configurations of the current system (like the Zemax multi-configuration editor): one name per configuration and the parameters that change from one to another (thickness, radius, conic, glass, decenter, tilt, grating, aperture, object distance, field, wavelength), each with one value per configuration, possibly an optimizer variable in each configuration. Everything else is shared. Makes the chosen configuration active (the analyses and exports use it) and returns the check and the comparison of the configurations.",
@@ -1390,6 +1395,20 @@ impl FreeOpticalMcpServer {
         }
     }
 
+    /// Écrit le système au format Zemax .zmx.
+    #[tool(
+        name = "exporter_zemax",
+        description = "Écrit le système courant en fichier de lentilles Zemax OpticStudio séquentiel (.zmx, UTF-16) : pupille, champs, longueurs d'onde, surfaces standard, asphères paires, paraxiales, réseaux et ruptures de repère, verres (noms des catalogues Schott/MISC, catalogues .agf importés, sinon verres modèles nd/Vd), miroirs, ouvertures et obstructions. Les surfaces décentrées ou inclinées sont encadrées de deux ruptures de repère ; les solves sont figés ; seule la configuration active est écrite. Retourne les remarques."
+    )]
+    pub async fn exporter_zemax(&self, Parameters(p): Parameters<CheminSystemeParams>) -> String {
+        let sys = self.systeme.lock().unwrap();
+        let e = crate::core::zemax::exporter_zemax(&sys);
+        match std::fs::write(&p.chemin, e.octets()) {
+            Ok(()) => serde_json::json!({ "exporte": p.chemin, "remarques": e.avertissements }).to_string(),
+            Err(err) => serde_json::json!({ "erreur": err.to_string() }).to_string(),
+        }
+    }
+
     /// Écrit la coupe méridienne en DXF pour la CAO.
     #[tool(
         name = "exporter_dxf",
@@ -1511,6 +1530,19 @@ mod tests {
         for (nom, _, _) in DESCRIPTIONS_OUTILS {
             assert!(routeur.map.contains_key(nom), "outil {nom} absent");
         }
+    }
+
+    #[tokio::test]
+    async fn test_outil_mcp_exporter_zemax() {
+        let srv = FreeOpticalMcpServer::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        let chemin = std::env::temp_dir().join(format!("freeoptical-mcp-{}.zmx", std::process::id()));
+        let res = srv.exporter_zemax(Parameters(CheminSystemeParams { chemin: chemin.to_string_lossy().into() })).await;
+        assert!(res.contains("exporte"), "{res}");
+        let res = srv.ouvrir_systeme(Parameters(CheminSystemeParams { chemin: chemin.to_string_lossy().into() })).await;
+        let _ = std::fs::remove_file(&chemin);
+        let v: serde_json::Value = serde_json::from_str(&res).unwrap();
+        let f = v["paraxial"]["focale_effl_mm"].as_f64().unwrap();
+        assert!((f - calculer_paraxial(&OpticalSystem::doublet_achromatique_defaut()).focale_effl_mm).abs() < 1e-9);
     }
 
     #[tokio::test]
