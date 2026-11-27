@@ -267,6 +267,29 @@ pub enum EtatMaj {
     Erreur(String),
 }
 
+impl EtatMaj {
+    /// Texte, couleur du texte et fond du bouton de la barre d'état
+    pub fn bouton(&self) -> (String, Color32, Color32) {
+        let neutre = (Color32::from_rgb(0, 80, 110), COL_DOS_CYAN);
+        let (texte, (fond, couleur)) = match self {
+            EtatMaj::AJour => (tr!(" À jour ", " Up to date ", " Aktuell ").to_string(), (Color32::from_rgb(0, 100, 40), COL_DOS_GREEN)),
+            // Espaces à droite : place de la pastille rouge
+            EtatMaj::Disponible(_) => (
+                tr!(" Mise à jour disponible     ", " Update available     ", " Update verfügbar     ").to_string(),
+                (Color32::from_rgb(130, 60, 0), COL_DOS_YELLOW),
+            ),
+            EtatMaj::Recherche => (tr!(" Vérification… ", " Checking… ", " Prüfung… ").to_string(), neutre),
+            EtatMaj::Installation(_) => (tr!(" Installation… ", " Installing… ", " Installation… ").to_string(), neutre),
+            EtatMaj::Installee(_) => (
+                tr!(" Mise à jour installée : redémarrer ", " Update installed: restart ", " Update installiert: neu starten ").to_string(),
+                (Color32::from_rgb(130, 60, 0), COL_DOS_YELLOW),
+            ),
+            EtatMaj::Erreur(_) => (tr!(" Mise à jour ", " Update ", " Update ").to_string(), neutre),
+        };
+        (texte, couleur, fond)
+    }
+}
+
 pub struct FreeOpticalGuiApp {
     pub systeme: OpticalSystem,
     pub paraxial: ParaxialData,
@@ -283,6 +306,9 @@ pub struct FreeOpticalGuiApp {
     pub fenetre_maj: bool,
     pub etat_maj: EtatMaj,
     recepteur_maj: Option<mpsc::Receiver<EtatMaj>>,
+    /// Vérification discrète en cours (sans fenêtre) et heure de la prochaine
+    verif_maj: Option<mpsc::Receiver<Option<VersionDisponible>>>,
+    prochaine_verif_maj: Option<std::time::Instant>,
     pub fenetre_import: bool,
     pub dossier_import: String,
     /// Mode de la fenêtre de fichiers (Ouvrir / Enregistrer sous)
@@ -359,6 +385,8 @@ impl FreeOpticalGuiApp {
             fenetre_maj: false,
             etat_maj: EtatMaj::Recherche,
             recepteur_maj: None,
+            verif_maj: None,
+            prochaine_verif_maj: None,
             fenetre_import: false,
             ondes: AnalysesOndes::default(),
             textures_ondes: ondes::TexturesOndes::default(),
@@ -695,6 +723,61 @@ impl FreeOpticalGuiApp {
         self.fenetre_maj = true;
     }
 
+    /// Vérification discrète au démarrage puis toutes les 6 h : allume la pastille de mise à jour
+    fn suivre_verification_maj(&mut self, ctx: &Context) {
+        let maintenant = std::time::Instant::now();
+        if self.verif_maj.is_none()
+            && self.recepteur_maj.is_none()
+            && self.prochaine_verif_maj.is_none_or(|t| maintenant >= t)
+            && !matches!(self.etat_maj, EtatMaj::Installation(_) | EtatMaj::Installee(_))
+        {
+            let c = ctx.clone();
+            self.verif_maj = maj::verification_discrete(move || c.request_repaint());
+            self.prochaine_verif_maj = Some(maintenant + maj::INTERVALLE_VERIFICATION);
+            ctx.request_repaint_after(maj::INTERVALLE_VERIFICATION);
+        }
+        if let Some(r) = &self.verif_maj {
+            match r.try_recv() {
+                Ok(resultat) => {
+                    self.verif_maj = None;
+                    // Une recherche lancée à la main ou une installation garde la main
+                    if self.recepteur_maj.is_none() && !matches!(self.etat_maj, EtatMaj::Installation(_) | EtatMaj::Installee(_)) {
+                        match resultat {
+                            Some(v) => {
+                                if !matches!(&self.etat_maj, EtatMaj::Disponible(d) if d.version == v.version) {
+                                    self.statut_message = trf!(
+                                        "Nouvelle version v{} disponible : bouton Mise à jour en bas à droite.",
+                                        "New version v{} available: Update button at the bottom right.",
+                                        "Neue Version v{} verfügbar: Schaltfläche Update unten rechts.",
+                                        v.version
+                                    );
+                                }
+                                self.etat_maj = EtatMaj::Disponible(v);
+                            }
+                            None => self.etat_maj = EtatMaj::AJour,
+                        }
+                    }
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    // Pas de réseau : on ne sait pas, le bouton garde un texte neutre
+                    self.verif_maj = None;
+                    if self.recepteur_maj.is_none() && matches!(self.etat_maj, EtatMaj::Recherche) {
+                        self.etat_maj = EtatMaj::Erreur(tr!("GitHub injoignable", "GitHub unreachable", "GitHub nicht erreichbar").into());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Version publiée plus récente que celle-ci, connue par la vérification ou la recherche
+    fn version_disponible(&self) -> Option<&str> {
+        match &self.etat_maj {
+            EtatMaj::Disponible(v) => Some(v.version.as_str()),
+            _ => None,
+        }
+    }
+
     pub fn rechercher_mise_a_jour(&mut self, ctx: &Context) {
         if self.recepteur_maj.is_some() {
             self.fenetre_maj = true;
@@ -958,6 +1041,25 @@ impl eframe::App for FreeOpticalGuiApp {
                             .color(COL_DOS_WHITE)
                             .background_color(Color32::from_rgb(0, 110, 120)),
                     );
+                    if let Some(v) = self.version_disponible().map(str::to_string) {
+                        let r = ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(trf!("     Nouvelle version v{} ", "     New version v{} ", "     Neue Version v{} ", v))
+                                        .monospace()
+                                        .strong()
+                                        .color(Color32::WHITE),
+                                )
+                                .fill(Color32::from_rgb(190, 20, 20)),
+                            )
+                            .on_hover_text(tr!("Voir et installer la mise à jour", "See and install the update", "Update ansehen und installieren"));
+                        // Pastille blanche à gauche du texte
+                        let centre = egui::pos2(r.rect.left() + 13.0, r.rect.center().y);
+                        ui.painter().circle(centre, 5.0, Color32::WHITE, Stroke::new(1.5, Color32::from_rgb(120, 0, 0)));
+                        if r.clicked() {
+                            self.fenetre_maj = true;
+                        }
+                    }
                     ui.add_space(8.0);
 
                     ui.menu_button(RichText::new(tr!(" Fichier ", " File ", " Datei ")).monospace().strong(), |ui| {
@@ -1296,26 +1398,30 @@ impl eframe::App for FreeOpticalGuiApp {
             .show(ui, |ui| {
                 // Bouton de mise à jour calé à droite, toujours visible quelle que soit la largeur
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let maj_disponible =
-                        matches!(self.etat_maj, EtatMaj::Disponible(_) | EtatMaj::Installee(_));
-                    let libelle = match &self.etat_maj {
-                        EtatMaj::Disponible(v) => trf!(" ⬆ Mise à jour v{} ", " ⬆ Update v{} ", " ⬆ Update v{} ", v.version),
-                        _ => tr!(" Mise à jour ", " Update ", " Update ").to_string(),
+                    let (libelle, couleur, fond) = self.etat_maj.bouton();
+                    let aide = match &self.etat_maj {
+                        EtatMaj::Disponible(v) => trf!(
+                            "Version v{} disponible (installée : v{}) : cliquer pour l'installer",
+                            "Version v{} available (installed: v{}): click to install it",
+                            "Version v{} verfügbar (installiert: v{}): zum Installieren klicken",
+                            v.version,
+                            maj::VERSION_COURANTE
+                        ),
+                        EtatMaj::AJour => trf!(
+                            "FreeOptical v{} est la dernière version publiée : cliquer pour revérifier",
+                            "FreeOptical v{} is the latest published version: click to check again",
+                            "FreeOptical v{} ist die neueste veröffentlichte Version: zum erneuten Prüfen klicken",
+                            maj::VERSION_COURANTE
+                        ),
+                        _ => tr!("Rechercher et installer la dernière version publiée sur GitHub", "Find and install the latest version published on GitHub", "Neueste auf GitHub veröffentlichte Version suchen und installieren").to_string(),
                     };
-                    if ui
-                        .add(
-                            egui::Button::new(RichText::new(libelle).monospace().strong().color(
-                                if maj_disponible { COL_DOS_YELLOW } else { COL_DOS_CYAN },
-                            ))
-                            .fill(if maj_disponible {
-                                Color32::from_rgb(130, 60, 0)
-                            } else {
-                                Color32::from_rgb(0, 80, 110)
-                            }),
-                        )
-                        .on_hover_text(tr!("Rechercher et installer la dernière version publiée sur GitHub", "Find and install the latest version published on GitHub", "Neueste auf GitHub veröffentlichte Version suchen und installieren"))
-                        .clicked()
-                    {
+                    let bouton = ui
+                        .add(egui::Button::new(RichText::new(libelle).monospace().strong().color(couleur)).fill(fond))
+                        .on_hover_text(aide);
+                    if self.version_disponible().is_some() {
+                        pastille(ui, bouton.rect);
+                    }
+                    if bouton.clicked() {
                         self.rechercher_mise_a_jour(&ctx);
                     }
                     ui.separator();
@@ -1450,11 +1556,18 @@ impl eframe::App for FreeOpticalGuiApp {
         }
 
         // Annuler / Rétablir : une modification devient une étape quand le geste est fini
+        self.suivre_verification_maj(&ctx);
         // Les modifications faites dans le LDE vont dans la colonne de la configuration active
         self.systeme.capturer_configuration();
         let geste_en_cours = ctx.input(|i| i.pointer.any_down()) || ctx.text_edit_focused();
         self.historique.suivre(&self.systeme, geste_en_cours);
     }
+}
+
+/// Pastille rouge en haut à droite d'un bouton (mise à jour disponible)
+fn pastille(ui: &egui::Ui, rect: egui::Rect) {
+    let centre = egui::pos2(rect.right() - 9.0, rect.center().y);
+    ui.painter().circle(centre, 6.0, Color32::from_rgb(230, 20, 20), Stroke::new(1.5, Color32::WHITE));
 }
 
 /// Encadre un composant dans un panneau à double bordure jaune/blanche style MS-DOS
@@ -2770,6 +2883,38 @@ pub(super) fn couleur_spectre(longueur_onde_nm: f64) -> Color32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn texte_du_bouton_de_mise_a_jour() {
+        use super::*;
+        assert_eq!(EtatMaj::AJour.bouton().0.trim(), "À jour");
+        let v = VersionDisponible { version: "9.9.9".into(), page: String::new(), deb: None };
+        assert_eq!(EtatMaj::Disponible(v).bouton().0.trim(), "Mise à jour disponible");
+        assert_eq!(EtatMaj::Erreur("hors ligne".into()).bouton().0.trim(), "Mise à jour");
+        // Au démarrage, avant la réponse de GitHub, rien n'est affirmé
+        let app = FreeOpticalGuiApp::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        assert!(matches!(app.etat_maj, EtatMaj::Recherche));
+
+        // Réponse de la vérification discrète : version plus récente, puis système à jour
+        let ctx = egui::Context::default();
+        let mut app = app;
+        for (reponse, attendu) in [(Some("9.9.9"), "Mise à jour disponible"), (None, "À jour")] {
+            let (e, r) = mpsc::channel();
+            e.send(reponse.map(|v| VersionDisponible { version: v.into(), page: String::new(), deb: None })).unwrap();
+            app.verif_maj = Some(r);
+            app.suivre_verification_maj(&ctx);
+            assert_eq!(app.etat_maj.bouton().0.trim(), attendu);
+            assert!(app.verif_maj.is_none());
+        }
+        assert!(app.version_disponible().is_none());
+        // Sans réseau (canal fermé sans réponse) : texte neutre
+        app.etat_maj = EtatMaj::Recherche;
+        let (e, r) = mpsc::channel::<Option<VersionDisponible>>();
+        drop(e);
+        app.verif_maj = Some(r);
+        app.suivre_verification_maj(&ctx);
+        assert_eq!(app.etat_maj.bouton().0.trim(), "Mise à jour");
+    }
+
     #[test]
     fn icone_de_fenetre_lisible() {
         let icone = eframe::icon_data::from_png_bytes(include_bytes!(

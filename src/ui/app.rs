@@ -311,6 +311,11 @@ pub struct AppState {
     pub nb_rayons_2d: usize,
     pub statut_message: String,
     pub doit_quitter: bool,
+    /// Version plus récente publiée sur GitHub (pastille dans la barre du haut)
+    pub maj_disponible: Option<String>,
+    /// Vérification discrète en cours et heure de la prochaine
+    pub verif_maj: Option<std::sync::mpsc::Receiver<Option<crate::maj::VersionDisponible>>>,
+    pub prochaine_verif_maj: Option<std::time::Instant>,
     /// Champ, longueur d'onde et résultats des analyses front d'onde / PSF / FTM
     pub ondes: AnalysesOndes,
     /// Vue de l'interféromètre de Bath (remplace la vue active quand elle est ouverte)
@@ -344,6 +349,9 @@ impl AppState {
             nb_rayons_2d: 9,
             statut_message,
             doit_quitter: false,
+            maj_disponible: None,
+            verif_maj: None,
+            prochaine_verif_maj: None,
             ondes: AnalysesOndes::default(),
             bath: None,
         }
@@ -547,6 +555,35 @@ impl AppState {
         self.ligne_selectionnee = idx;
         self.recalculer();
         self.statut_message = trf!("Surface ajoutée en position #{} (avant Plan Image).", "Surface added at position #{} (before the Image Plane).", "Fläche an Position #{} hinzugefügt (vor der Bildebene).", idx + 1);
+    }
+
+    /// Vérification discrète des mises à jour (au démarrage, puis toutes les 6 h)
+    pub fn suivre_verification_maj(&mut self) {
+        let maintenant = std::time::Instant::now();
+        if self.verif_maj.is_none() && self.prochaine_verif_maj.is_none_or(|t| maintenant >= t) {
+            self.verif_maj = crate::maj::verification_discrete(|| {});
+            self.prochaine_verif_maj = Some(maintenant + crate::maj::INTERVALLE_VERIFICATION);
+        }
+        if let Some(r) = &self.verif_maj {
+            match r.try_recv() {
+                Ok(v) => {
+                    self.verif_maj = None;
+                    if let Some(v) = &v {
+                        if self.maj_disponible.as_deref() != Some(v.version.as_str()) {
+                            self.statut_message = trf!(
+                                "Nouvelle version v{} disponible : bouton Mise à jour de la fenêtre graphique, ou https://github.com/jbandrivet/freeoptical/releases",
+                                "New version v{} available: Update button of the graphical window, or https://github.com/jbandrivet/freeoptical/releases",
+                                "Neue Version v{} verfügbar: Schaltfläche Update im grafischen Fenster oder https://github.com/jbandrivet/freeoptical/releases",
+                                v.version
+                            );
+                        }
+                    }
+                    self.maj_disponible = v.map(|v| v.version);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.verif_maj = None,
+            }
+        }
     }
 
     /// Passe à la configuration suivante (touche N), modifications de l'active gardées

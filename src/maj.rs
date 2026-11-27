@@ -61,6 +61,28 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
+/// Intervalle entre deux vérifications discrètes pendant que le logiciel reste ouvert
+pub const INTERVALLE_VERIFICATION: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+
+/// Vérification discrète en arrière-plan (au démarrage, puis toutes les 6 h) : le récepteur
+/// donne `Some(version)` si une version plus récente est publiée, `None` si le logiciel est à
+/// jour ; rien (canal fermé) sans réseau. Désactivée par `FREEOPTICAL_SANS_MAJ` et dans les tests.
+pub fn verification_discrete(
+    reveil: impl FnOnce() + Send + 'static,
+) -> Option<std::sync::mpsc::Receiver<Option<VersionDisponible>>> {
+    if cfg!(test) || std::env::var_os("FREEOPTICAL_SANS_MAJ").is_some() {
+        return None;
+    }
+    let (emetteur, recepteur) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        if let Ok(v) = rechercher() {
+            let _ = emetteur.send(v);
+        }
+        reveil();
+    });
+    Some(recepteur)
+}
+
 /// Interroge GitHub ; `Ok(None)` si la version en cours est la plus récente
 pub fn rechercher() -> Result<Option<VersionDisponible>, String> {
     let texte = agent()

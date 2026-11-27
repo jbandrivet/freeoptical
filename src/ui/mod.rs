@@ -62,6 +62,7 @@ fn boucle_principale(
     app: &mut AppState,
 ) -> Result<()> {
     while !app.doit_quitter {
+        app.suivre_verification_maj();
         app.preparer_vue();
         terminal.draw(|f| dessiner_interface(f, app))?;
 
@@ -114,6 +115,13 @@ fn dessiner_barre_menu(f: &mut Frame, zone: Rect, app: &AppState) {
             .fg(DOS_WHITE)
             .add_modifier(Modifier::BOLD),
     )];
+
+    if let Some(v) = &app.maj_disponible {
+        spans.push(Span::styled(
+            trf!(" ● Nouvelle version v{} ", " ● New version v{} ", " ● Neue Version v{} ", v),
+            Style::default().bg(Color::Rgb(190, 20, 20)).fg(DOS_WHITE).add_modifier(Modifier::BOLD),
+        ));
+    }
 
     for (idx, titre) in titres_menus().iter().enumerate() {
         let est_actif = app.menu_ouvert == Some(idx);
@@ -488,5 +496,19 @@ mod tests {
         assert_eq!(app.systeme.configurations.active, 0);
         assert_eq!(app.systeme.surfaces[2].epaisseur, 93.6);
         assert_eq!(app.systeme.surfaces[0].commentaire, "modifiée");
+    }
+
+    #[test]
+    fn pastille_de_mise_a_jour() {
+        let backend = TestBackend::new(160, 40);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = AppState::nouveau(OpticalSystem::doublet_achromatique_defaut());
+        // Pas de réseau dans les tests : aucune vérification lancée
+        app.suivre_verification_maj();
+        assert!(app.verif_maj.is_none());
+        app.maj_disponible = Some("9.9.9".into());
+        terminal.draw(|f| dessiner_interface(f, &app)).unwrap();
+        let texte: String = terminal.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        assert!(texte.contains("Nouvelle version v9.9.9"), "pastille absente");
     }
 }
