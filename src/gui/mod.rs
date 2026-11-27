@@ -302,6 +302,8 @@ pub struct FreeOpticalGuiApp {
     pub zoom: f32,
     pub pan_offset: Vec2,
     pub nb_rayons_2d: usize,
+    /// Coupe 2D : dessiner aussi les autres configurations, en couleurs
+    pub superposer_configs: bool,
     pub statut_message: String,
     pub fenetre_maj: bool,
     pub etat_maj: EtatMaj,
@@ -381,6 +383,7 @@ impl FreeOpticalGuiApp {
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
             nb_rayons_2d: 11,
+            superposer_configs: true,
             statut_message,
             fenetre_maj: false,
             etat_maj: EtatMaj::Recherche,
@@ -735,6 +738,10 @@ impl FreeOpticalGuiApp {
             self.verif_maj = maj::verification_discrete(move || c.request_repaint());
             self.prochaine_verif_maj = Some(maintenant + maj::INTERVALLE_VERIFICATION);
             ctx.request_repaint_after(maj::INTERVALLE_VERIFICATION);
+            // Vérification désactivée : le bouton ne reste pas sur « Vérification… »
+            if self.verif_maj.is_none() && matches!(self.etat_maj, EtatMaj::Recherche) {
+                self.etat_maj = EtatMaj::Erreur(tr!("vérification automatique désactivée", "automatic check disabled", "automatische Prüfung deaktiviert").into());
+            }
         }
         if let Some(r) = &self.verif_maj {
             match r.try_recv() {
@@ -1564,6 +1571,19 @@ impl eframe::App for FreeOpticalGuiApp {
     }
 }
 
+/// Couleur d'une configuration superposée dans la coupe 2D (hors de celles de l'active)
+fn couleur_configuration(rang: usize) -> Color32 {
+    const COULEURS: [Color32; 6] = [
+        Color32::from_rgb(255, 140, 0),
+        Color32::from_rgb(255, 110, 170),
+        Color32::from_rgb(170, 140, 255),
+        Color32::from_rgb(255, 80, 80),
+        Color32::from_rgb(210, 180, 90),
+        Color32::from_rgb(120, 200, 255),
+    ];
+    COULEURS[rang % COULEURS.len()]
+}
+
 /// Pastille rouge en haut à droite d'un bouton (mise à jour disponible)
 fn pastille(ui: &egui::Ui, rect: egui::Rect) {
     let centre = egui::pos2(rect.right() - 9.0, rect.center().y);
@@ -2172,6 +2192,10 @@ impl FreeOpticalGuiApp {
                 self.zoom = 1.0;
                 self.pan_offset = Vec2::ZERO;
             }
+            if self.systeme.nb_configurations() > 1 {
+                ui.separator();
+                ui.checkbox(&mut self.superposer_configs, tr!("Superposer les configurations", "Overlay configurations", "Konfigurationen überlagern"));
+            }
             // Légende limitée à ce que le système affiche réellement
             let sys = &self.systeme;
             let mut legende = vec![tr!("Cyan = Champ sur l'axe", "Cyan = On-axis field", "Cyan = Feld auf der Achse").to_string()];
@@ -2194,7 +2218,33 @@ impl FreeOpticalGuiApp {
                     .monospace()
                     .color(COL_DOS_GRAY),
             );
+            // Légende des configurations superposées : une couleur par configuration
+            if self.superposer_configs && sys.nb_configurations() > 1 {
+                let active = sys.configurations.active;
+                ui.label(
+                    RichText::new(trf!("  {} {} (active) : couleurs ci-dessus", "  {} {} (active): colours above", "  {} {} (aktiv): Farben oben", active + 1, sys.configurations.nom(active)))
+                        .monospace()
+                        .color(COL_DOS_WHITE),
+                );
+                for (rang, k) in (0..sys.nb_configurations()).filter(|&k| k != active).enumerate() {
+                    ui.label(
+                        RichText::new(format!("  {} {}", k + 1, sys.configurations.nom(k)))
+                            .monospace()
+                            .strong()
+                            .color(couleur_configuration(rang)),
+                    );
+                }
+            }
         });
+
+        // Autres configurations à superposer (copies, solves appliqués)
+        let autres: Vec<OpticalSystem> = if self.superposer_configs && self.systeme.nb_configurations() > 1 {
+            let mut base = self.systeme.clone();
+            base.capturer_configuration();
+            (0..base.nb_configurations()).filter(|&k| k != base.configurations.active).map(|k| base.systeme_de_configuration(k)).collect()
+        } else {
+            Vec::new()
+        };
 
         let dispo = ui.available_size();
         let (response, painter) = ui.allocate_painter(dispo, Sense::click_and_drag());
@@ -2221,12 +2271,21 @@ impl FreeOpticalGuiApp {
         let sys = &self.systeme;
         let positions_z = sys.positions_z_sommets();
         let reperes = sys.reperes();
-        let [z_min_sys, z_max_sys, y_min_sys, y_max_sys] = sys.boite_englobante();
-        let max_sd = sys
+        // Cadrage commun à toutes les configurations dessinées
+        let [mut z_min_sys, mut z_max_sys, mut y_min_sys, mut y_max_sys] = sys.boite_englobante();
+        let mut max_sd = sys
             .surfaces
             .iter()
             .map(|s| s.semi_diametre)
             .fold(15.0_f64, f64::max);
+        for a in &autres {
+            let [z0, z1, y0, y1] = a.boite_englobante();
+            z_min_sys = z_min_sys.min(z0);
+            z_max_sys = z_max_sys.max(z1);
+            y_min_sys = y_min_sys.min(y0);
+            y_max_sys = y_max_sys.max(y1);
+            max_sd = a.surfaces.iter().map(|s| s.semi_diametre).fold(max_sd, f64::max);
+        }
 
         // Tient compte des surfaces placées en arrière (après un miroir) et du départ des rayons
         let z_min = z_min_sys - 18.0;
@@ -2260,8 +2319,41 @@ impl FreeOpticalGuiApp {
             tracer_segment(&painter, vers_ecran(z_min - 50.0, 0.0), vers_ecran(z_max + 50.0, 0.0), 1.08, couleur_axe);
         }
 
-        // 2. Remplissage et contours des éléments en verre (Lentilles & Cubes Séparateurs)
+        // 1 bis. Autres configurations, sous l'active : profils des surfaces et faisceaux en traits
+        // fins, une couleur par configuration
         let nb_pts_courbe = 48;
+        for (rang, a) in autres.iter().enumerate() {
+            let couleur = couleur_configuration(rang);
+            let pale = couleur.gamma_multiply(0.75);
+            let reperes_a = a.reperes();
+            for (idx, surf) in a.surfaces.iter().enumerate() {
+                if surf.est_coupure() {
+                    continue;
+                }
+                let sd = surf.semi_diametre;
+                let pts: Vec<Pos2> = (0..=nb_pts_courbe)
+                    .filter_map(|k| {
+                        let y = -sd + 2.0 * sd * (k as f64) / (nb_pts_courbe as f64);
+                        surf.fleche(y.abs()).map(|f| {
+                            let g = reperes_a[idx].vers_global(0.0, y, f);
+                            vers_ecran(g.z, g.y)
+                        })
+                    })
+                    .collect();
+                tracer_polyligne(&painter, &pts, 1.3, couleur);
+            }
+            let mut faisceaux = tracer_eventail_meridional(a, 0.0, self.nb_rayons_2d.min(9), a.longueur_onde_ref_nm);
+            if a.champs_deg.len() > 1 && a.champs_deg[1].1.abs() > 0.01 {
+                faisceaux.extend(tracer_eventail_meridional(a, a.champs_deg[1].1, 5, a.longueur_onde_ref_nm));
+            }
+            for tr in &faisceaux {
+                let mut pts = vec![vers_ecran(tr.rayon_initial.origine.z, tr.rayon_initial.origine.y)];
+                pts.extend(tr.impacts.iter().map(|h| vers_ecran(h.point_global.z, h.point_global.y)));
+                tracer_polyligne(&painter, &pts, 0.9, pale);
+            }
+        }
+
+        // 2. Remplissage et contours des éléments en verre (Lentilles & Cubes Séparateurs)
         for (idx, (surf, &z_sommet)) in sys.surfaces.iter().zip(positions_z.iter()).enumerate() {
             if surf.est_coupure() {
                 continue;
@@ -2894,9 +2986,12 @@ mod tests {
         let app = FreeOpticalGuiApp::nouveau(OpticalSystem::doublet_achromatique_defaut());
         assert!(matches!(app.etat_maj, EtatMaj::Recherche));
 
-        // Réponse de la vérification discrète : version plus récente, puis système à jour
+        // Vérification impossible (désactivée, ici dans les tests) : texte neutre, pas « Vérification… »
         let ctx = egui::Context::default();
         let mut app = app;
+        app.suivre_verification_maj(&ctx);
+        assert_eq!(app.etat_maj.bouton().0.trim(), "Mise à jour");
+        // Réponse de la vérification discrète : version plus récente, puis système à jour
         for (reponse, attendu) in [(Some("9.9.9"), "Mise à jour disponible"), (None, "À jour")] {
             let (e, r) = mpsc::channel();
             e.send(reponse.map(|v| VersionDisponible { version: v.into(), page: String::new(), deb: None })).unwrap();
