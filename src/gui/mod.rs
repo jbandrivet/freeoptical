@@ -2183,6 +2183,41 @@ impl FreeOpticalGuiApp {
     }
 
     /// Dessine la coupe transversale 2D avec rendu en traits continus (lentilles, cubes séparateurs à 45°, rayons)
+    /// Autres configurations à superposer dans les coupes 2D et 3D (copies, solves appliqués)
+    fn systemes_superposes(&self) -> Vec<OpticalSystem> {
+        if !self.superposer_configs || self.systeme.nb_configurations() <= 1 {
+            return Vec::new();
+        }
+        let mut base = self.systeme.clone();
+        base.capturer_configuration();
+        (0..base.nb_configurations()).filter(|&k| k != base.configurations.active).map(|k| base.systeme_de_configuration(k)).collect()
+    }
+
+    /// Case « Superposer les configurations » (s'il y en a plusieurs)
+    fn case_superposition(&mut self, ui: &mut egui::Ui) {
+        if self.systeme.nb_configurations() > 1 {
+            ui.separator();
+            ui.checkbox(&mut self.superposer_configs, tr!("Superposer les configurations", "Overlay configurations", "Konfigurationen überlagern"));
+        }
+    }
+
+    /// Légende des configurations superposées : une couleur par configuration
+    fn legende_configurations(&self, ui: &mut egui::Ui) {
+        let sys = &self.systeme;
+        if !self.superposer_configs || sys.nb_configurations() <= 1 {
+            return;
+        }
+        let active = sys.configurations.active;
+        ui.label(
+            RichText::new(trf!("  {} {} (active) : couleurs habituelles", "  {} {} (active): usual colours", "  {} {} (aktiv): übliche Farben", active + 1, sys.configurations.nom(active)))
+                .monospace()
+                .color(COL_DOS_WHITE),
+        );
+        for (rang, k) in (0..sys.nb_configurations()).filter(|&k| k != active).enumerate() {
+            ui.label(RichText::new(format!("  {} {}", k + 1, sys.configurations.nom(k))).monospace().strong().color(couleur_configuration(rang)));
+        }
+    }
+
     fn dessiner_canevas_2d(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(tr!("Rayons :", "Rays:", "Strahlen:")).monospace());
@@ -2192,10 +2227,7 @@ impl FreeOpticalGuiApp {
                 self.zoom = 1.0;
                 self.pan_offset = Vec2::ZERO;
             }
-            if self.systeme.nb_configurations() > 1 {
-                ui.separator();
-                ui.checkbox(&mut self.superposer_configs, tr!("Superposer les configurations", "Overlay configurations", "Konfigurationen überlagern"));
-            }
+            self.case_superposition(ui);
             // Légende limitée à ce que le système affiche réellement
             let sys = &self.systeme;
             let mut legende = vec![tr!("Cyan = Champ sur l'axe", "Cyan = On-axis field", "Cyan = Feld auf der Achse").to_string()];
@@ -2218,33 +2250,10 @@ impl FreeOpticalGuiApp {
                     .monospace()
                     .color(COL_DOS_GRAY),
             );
-            // Légende des configurations superposées : une couleur par configuration
-            if self.superposer_configs && sys.nb_configurations() > 1 {
-                let active = sys.configurations.active;
-                ui.label(
-                    RichText::new(trf!("  {} {} (active) : couleurs ci-dessus", "  {} {} (active): colours above", "  {} {} (aktiv): Farben oben", active + 1, sys.configurations.nom(active)))
-                        .monospace()
-                        .color(COL_DOS_WHITE),
-                );
-                for (rang, k) in (0..sys.nb_configurations()).filter(|&k| k != active).enumerate() {
-                    ui.label(
-                        RichText::new(format!("  {} {}", k + 1, sys.configurations.nom(k)))
-                            .monospace()
-                            .strong()
-                            .color(couleur_configuration(rang)),
-                    );
-                }
-            }
+            self.legende_configurations(ui);
         });
 
-        // Autres configurations à superposer (copies, solves appliqués)
-        let autres: Vec<OpticalSystem> = if self.superposer_configs && self.systeme.nb_configurations() > 1 {
-            let mut base = self.systeme.clone();
-            base.capturer_configuration();
-            (0..base.nb_configurations()).filter(|&k| k != base.configurations.active).map(|k| base.systeme_de_configuration(k)).collect()
-        } else {
-            Vec::new()
-        };
+        let autres = self.systemes_superposes();
 
         let dispo = ui.available_size();
         let (response, painter) = ui.allocate_painter(dispo, Sense::click_and_drag());
@@ -2567,6 +2576,8 @@ impl FreeOpticalGuiApp {
                 self.pitch_3d_deg = 20.0;
                 self.zoom = 1.0;
             }
+            self.case_superposition(ui);
+            self.legende_configurations(ui);
             if self.systeme.surfaces.iter().any(|surf| est_cube_separateur(&self.systeme, surf)) {
                 ui.label(
                     RichText::new(tr!("  (Cyan = Transmis | Orange = Réfléchis 90° Cube 50/50)", "  (Cyan = Transmitted | Orange = Reflected 90° 50/50 cube)", "  (Cyan = Durchgelassen | Orange = 90° reflektiert 50/50-Cube)"))
@@ -2602,15 +2613,25 @@ impl FreeOpticalGuiApp {
         let sys = &self.systeme;
         let positions_z = sys.positions_z_sommets();
         let reperes = sys.reperes();
-        let [z_min_sys, z_max_sys, y_min_sys, y_max_sys] = sys.boite_englobante();
-        let longueur = (z_max_sys - z_min_sys).max(y_max_sys - y_min_sys).max(20.0);
-        let z_centre = 0.5 * (z_min_sys + z_max_sys);
-        let y_centre = 0.5 * (y_min_sys + y_max_sys);
-        let max_sd = sys
+        let autres = self.systemes_superposes();
+        let [mut z_min_sys, mut z_max_sys, mut y_min_sys, mut y_max_sys] = sys.boite_englobante();
+        let mut max_sd = sys
             .surfaces
             .iter()
             .map(|s| s.semi_diametre)
             .fold(15.0_f64, f64::max);
+        // Cadrage commun à toutes les configurations dessinées
+        for a in &autres {
+            let [z0, z1, y0, y1] = a.boite_englobante();
+            z_min_sys = z_min_sys.min(z0);
+            z_max_sys = z_max_sys.max(z1);
+            y_min_sys = y_min_sys.min(y0);
+            y_max_sys = y_max_sys.max(y1);
+            max_sd = a.surfaces.iter().map(|s| s.semi_diametre).fold(max_sd, f64::max);
+        }
+        let longueur = (z_max_sys - z_min_sys).max(y_max_sys - y_min_sys).max(20.0);
+        let z_centre = 0.5 * (z_min_sys + z_max_sys);
+        let y_centre = 0.5 * (y_min_sys + y_max_sys);
 
         let echelle = ((rect.width().min(rect.height()) as f64)
             / (longueur * 1.15).max(max_sd * 3.2))
@@ -2632,6 +2653,44 @@ impl FreeOpticalGuiApp {
                 centre.y - (v * echelle) as f32,
             )
         };
+
+        // 0. Autres configurations, sous l'active : contour et méridiens des surfaces, faisceau
+        // sur l'axe, en traits fins d'une couleur par configuration
+        for (rang, a) in autres.iter().enumerate() {
+            let couleur = couleur_configuration(rang);
+            let pale = couleur.gamma_multiply(0.7);
+            for tr in &tracer_grille_hexapolaire(a, 0.0, 0.0, 1, a.longueur_onde_ref_nm) {
+                let mut pts = vec![projeter(tr.rayon_initial.origine)];
+                pts.extend(tr.impacts.iter().map(|h| projeter(h.point_global)));
+                tracer_polyligne(&painter, &pts, 0.9, pale);
+            }
+            let reperes_a = a.reperes();
+            for (idx, surf) in a.surfaces.iter().enumerate() {
+                if surf.est_coupure() {
+                    continue;
+                }
+                let rep = reperes_a[idx];
+                let sd = surf.semi_diametre;
+                if let Some(z_sag) = surf.fleche(sd) {
+                    let pts: Vec<Pos2> = (0..=40)
+                        .map(|k| {
+                            let th = std::f64::consts::TAU * (k as f64) / 40.0;
+                            projeter(rep.vers_global(sd * th.cos(), sd * th.sin(), z_sag))
+                        })
+                        .collect();
+                    tracer_polyligne(&painter, &pts, 1.2, couleur);
+                }
+                for &(ca, sa) in &[(1.0, 0.0), (0.0, 1.0)] {
+                    let pts: Vec<Pos2> = (0..=24)
+                        .filter_map(|k| {
+                            let r_s = -sd + 2.0 * sd * (k as f64) / 24.0;
+                            surf.fleche(r_s.abs()).map(|z| projeter(rep.vers_global(r_s * ca, r_s * sa, z)))
+                        })
+                        .collect();
+                    tracer_polyligne(&painter, &pts, 1.0, couleur);
+                }
+            }
+        }
 
         // 1. Faisceau 3D hexapolaire (rayons transmis + rayons réfléchis à 90° dans les cubes séparateurs)
         let faisceau = tracer_grille_hexapolaire(sys, 0.0, 0.0, 2, sys.longueur_onde_ref_nm);
